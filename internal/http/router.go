@@ -6,12 +6,19 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"ripple-note/internal/auth"
 	"ripple-note/internal/middleware"
 	"ripple-note/internal/observability"
 )
 
+type AccountRoutes interface {
+	RegisterRoutes(router gin.IRouter, requireAuth gin.HandlerFunc)
+}
+
 type RouterOptions struct {
-	Logger *slog.Logger
+	Logger        *slog.Logger
+	AccountRoutes AccountRoutes
+	JWTManager    *auth.JWTManager
 }
 
 func NewRouter(options RouterOptions) http.Handler {
@@ -34,6 +41,10 @@ func NewRouter(options RouterOptions) http.Handler {
 	router.GET("/health", func(c *gin.Context) {
 		OK(c, gin.H{"status": "ok"})
 	})
+
+	if options.AccountRoutes != nil {
+		options.AccountRoutes.RegisterRoutes(router.Group("/api"), middleware.AuthRequired(options.JWTManager))
+	}
 
 	return router
 }

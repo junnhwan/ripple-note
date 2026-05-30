@@ -30,6 +30,12 @@ func TestLoadLocalConfigAppliesYAMLAndDefaults(t *testing.T) {
 	if cfg.MySQL.DSN == "" {
 		t.Fatal("expected MySQL DSN to be present for later stages")
 	}
+	if cfg.Auth.JWTSecret == "" {
+		t.Fatal("expected auth jwt secret to be present")
+	}
+	if cfg.Auth.JWTTTL != 24*time.Hour {
+		t.Fatalf("expected jwt ttl 24h, got %s", cfg.Auth.JWTTTL)
+	}
 }
 
 func TestValidateRequiresDSNWhenMySQLEnabled(t *testing.T) {

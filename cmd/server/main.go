@@ -11,6 +11,8 @@ import (
 	"syscall"
 	"time"
 
+	"ripple-note/internal/account"
+	"ripple-note/internal/auth"
 	"ripple-note/internal/config"
 	httpapi "ripple-note/internal/http"
 	"ripple-note/internal/observability"
@@ -28,6 +30,13 @@ func main() {
 	}
 
 	logger := observability.NewLogger(cfg.Log.Level)
+	jwtManager := auth.NewJWTManager(auth.JWTConfig{
+		Secret: cfg.Auth.JWTSecret,
+		Issuer: cfg.Auth.JWTIssuer,
+		TTL:    cfg.Auth.JWTTTL,
+	})
+
+	var accountRoutes httpapi.AccountRoutes
 
 	if cfg.MySQL.Enabled {
 		db, err := storage.OpenMySQL(cfg.MySQL)
@@ -41,14 +50,21 @@ func main() {
 			os.Exit(1)
 		}
 		defer sqlDB.Close()
+		if err := db.AutoMigrate(&account.User{}); err != nil {
+			logger.Error("auto migrate mysql failed", "error", err)
+			os.Exit(1)
+		}
+		userRepo := account.NewGormUserRepository(db)
+		accountService := account.NewService(userRepo, auth.NewBcryptPasswordHasher(), jwtManager)
+		accountRoutes = account.NewHandler(accountService)
 		logger.Info("mysql connected")
 	} else {
-		logger.Warn("mysql disabled; only infrastructure endpoints are available")
+		logger.Warn("mysql disabled; account endpoints are unavailable")
 	}
 
 	server := &http.Server{
 		Addr:         cfg.Addr(),
-		Handler:      httpapi.NewRouter(httpapi.RouterOptions{Logger: logger}),
+		Handler:      httpapi.NewRouter(httpapi.RouterOptions{Logger: logger, AccountRoutes: accountRoutes, JWTManager: jwtManager}),
 		ReadTimeout:  cfg.HTTP.ReadTimeout,
 		WriteTimeout: cfg.HTTP.WriteTimeout,
 	}

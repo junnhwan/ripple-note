@@ -18,5 +18,10 @@ mysql:
   max_idle_connections: 10
   connection_max_lifetime: 1h
 
+auth:
+  jwt_secret: "local-dev-jwt-secret-change-me"
+  jwt_issuer: "ripple-note"
+  jwt_ttl: 24h
+
 review:
   internal_token: "local-dev-internal-token"

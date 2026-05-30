@@ -20,6 +20,7 @@ type Config struct {
 	HTTP   HTTPConfig   `yaml:"http"`
 	Log    LogConfig    `yaml:"log"`
 	MySQL  MySQLConfig  `yaml:"mysql"`
+	Auth   AuthConfig   `yaml:"auth"`
 	Review ReviewConfig `yaml:"review"`
 }
 
@@ -44,6 +45,12 @@ type MySQLConfig struct {
 	MaxOpenConnections    int           `yaml:"max_open_connections"`
 	MaxIdleConnections    int           `yaml:"max_idle_connections"`
 	ConnectionMaxLifetime time.Duration `yaml:"connection_max_lifetime"`
+}
+
+type AuthConfig struct {
+	JWTSecret string        `yaml:"jwt_secret"`
+	JWTIssuer string        `yaml:"jwt_issuer"`
+	JWTTTL    time.Duration `yaml:"jwt_ttl"`
 }
 
 type ReviewConfig struct {
@@ -77,6 +84,9 @@ func (c Config) Validate() error {
 	}
 	if c.MySQL.Enabled && c.MySQL.DSN == "" {
 		return errors.New("mysql.dsn is required when mysql.enabled is true")
+	}
+	if c.Auth.JWTSecret == "" {
+		return errors.New("auth.jwt_secret is required")
 	}
 	return nil
 }
@@ -118,5 +128,14 @@ func applyDefaults(cfg *Config) {
 	}
 	if cfg.MySQL.ConnectionMaxLifetime == 0 {
 		cfg.MySQL.ConnectionMaxLifetime = time.Hour
+	}
+	if cfg.Auth.JWTSecret == "" {
+		cfg.Auth.JWTSecret = "local-dev-jwt-secret-change-me"
+	}
+	if cfg.Auth.JWTIssuer == "" {
+		cfg.Auth.JWTIssuer = defaultAppName
+	}
+	if cfg.Auth.JWTTTL == 0 {
+		cfg.Auth.JWTTTL = 24 * time.Hour
 	}
 }

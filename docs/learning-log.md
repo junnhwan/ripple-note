@@ -69,3 +69,63 @@ Stage 2 should add account and authentication:
 - Register/login/current-user APIs.
 - Password hashing.
 - JWT signing and auth middleware.
+
+## 2026-05-30 Stage 2: Account And Authentication
+
+### Stage Goal
+
+让用户可以注册、登录，并通过 Bearer JWT 访问受保护接口。此阶段只实现账号身份链路，不实现内容发布、Feed 或管理后台。
+
+### Files Created Or Modified
+
+- `internal/account/model.go`: `users` GORM model.
+- `internal/account/repository.go`: user repository interface and GORM implementation.
+- `internal/account/service.go`: register, login, current-user business logic.
+- `internal/account/handler.go`: account HTTP handlers and error mapping.
+- `internal/account/dto.go`: response DTOs that do not expose `password_hash`.
+- `internal/auth/password.go`: bcrypt password hashing and verification.
+- `internal/auth/jwt.go`: HMAC-SHA256 JWT issuing and parsing.
+- `internal/middleware/auth.go`: Bearer token authentication middleware.
+- `internal/http/router.go`: `/api/users`, `/api/sessions`, `/api/users/me` route wiring.
+- `cmd/server/main.go`: JWT manager, account service wiring, and development AutoMigrate for users.
+- `configs/config.local.yaml`: local JWT settings.
+- `docs/openapi.yaml`: Stage 2 account API contract.
+- `internal/account/*_test.go`, `internal/auth/*_test.go`: unit and handler tests.
+
+### Go Backend Notes
+
+- The account module follows `handler -> service -> repository`.
+- Handler layer knows HTTP status codes and JSON binding.
+- Service layer owns business rules such as email normalization, duplicate checks, password verification, and disabled-user handling.
+- Repository layer owns GORM queries and converts `gorm.ErrRecordNotFound` into domain-level `ErrUserNotFound`.
+- Passwords are never stored as plain text. The service stores only bcrypt hashes.
+- JWT payload includes `user_id` and `role`. The middleware parses the token and puts claims into Gin context.
+- DTOs prevent leaking persistence-only fields such as `PasswordHash`.
+- Tests use an in-memory SQLite database through a pure Go driver so they do not require local MySQL or cgo.
+
+### Java Spring Boot Comparison
+
+- `Handler` is similar to a Spring `@RestController`.
+- `Service` is similar to a Spring `@Service`, but dependencies are passed manually instead of injected by the framework.
+- `GormUserRepository` is similar to a Spring Data repository, but query behavior is explicit code.
+- Gin auth middleware is similar to a Spring Security filter.
+- `context.Context` is Go's standard way to carry request cancellation and deadlines; it is not the same as Spring's application context.
+- DTO separation serves the same purpose as Java response classes or MapStruct output DTOs.
+
+### Verification
+
+- Red phase: account and auth tests initially failed because production packages did not exist.
+- `go test ./internal/auth ./internal/account -run Test -count=1 -v`
+- `go test -count=1 ./...`
+- `go run ./cmd/server -config configs/config.local.yaml`
+- `GET http://127.0.0.1:8080/health` returned a unified response with `request_id`.
+
+### Next Stage
+
+Stage 3 should add content publishing and upload workflow:
+
+- Local image upload endpoint.
+- Notes, images, tags, note-tags models.
+- Authenticated content publishing.
+- Content detail and own-content listing.
+- New content starts as `pending_review`.

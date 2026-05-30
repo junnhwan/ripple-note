@@ -16,4 +16,12 @@ openspec
 # Frontend build output and dependencies
 web/dist
 web/node_modules
+web/.vite
 
+# Go workspace local config
+go.work.exclude
+
+# Uploaded files (runtime)
+uploads/
+
+*.exe

@@ -18,6 +18,7 @@ import (
 	"ripple-note/internal/middleware"
 	"ripple-note/internal/note"
 	"ripple-note/internal/observability"
+	"ripple-note/internal/review"
 	"ripple-note/internal/storage"
 	"ripple-note/internal/upload"
 )
@@ -59,6 +60,7 @@ func main() {
 		accountRoutes httpapi.AccountRoutes
 		noteRoutes    httpapi.AccountRoutes
 		uploadRoutes  httpapi.AccountRoutes
+		reviewRoutes  httpapi.AccountRoutes
 	)
 
 	if cfg.MySQL.Enabled {
@@ -80,6 +82,8 @@ func main() {
 			&note.NoteImage{},
 			&note.Tag{},
 			&note.NoteTag{},
+			&review.ReviewTask{},
+			&review.ReviewTaskEvent{},
 		); err != nil {
 			logger.Error("auto migrate mysql failed", "error", err)
 			os.Exit(1)
@@ -91,7 +95,12 @@ func main() {
 
 		authorProvider := &userAuthorProvider{repo: userRepo}
 		noteRepo := note.NewRepository(db)
-		noteService := note.NewService(noteRepo, authorProvider)
+
+		reviewRepo := review.NewRepository(db)
+		reviewService := review.NewService(reviewRepo, noteRepo)
+		reviewRoutes = review.NewHandler(reviewService)
+
+		noteService := note.NewService(noteRepo, authorProvider, reviewService)
 		optionalAuth := middleware.OptionalAuth(jwtManager)
 		noteRoutes = note.NewHandler(noteService, optionalAuth)
 
@@ -103,12 +112,13 @@ func main() {
 	}
 
 	server := &http.Server{
-		Addr:         cfg.Addr(),
+		Addr: cfg.Addr(),
 		Handler: httpapi.NewRouter(httpapi.RouterOptions{
 			Logger:          logger,
 			AccountRoutes:   accountRoutes,
 			NoteRoutes:      noteRoutes,
 			UploadRoutes:    uploadRoutes,
+			ReviewRoutes:    reviewRoutes,
 			JWTManager:      jwtManager,
 			UploadStaticDir: cfg.Upload.ImageDir,
 		}),

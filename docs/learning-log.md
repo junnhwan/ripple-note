@@ -207,3 +207,55 @@ Stage 4 should add review task state transitions:
 - `review_tasks` and `review_task_events` models.
 - Admin review APIs.
 - Content status transitions.
+
+## 2026-05-30 Stage 4: Content State Flow And Review Tasks
+
+### Stage Goal
+
+Build the review/governance task workflow. Publishing a note automatically creates a review task. Admin can approve or reject, which transitions the note status accordingly.
+
+### Files Created Or Modified
+
+- `internal/review/model.go`: `review_tasks` and `review_task_events` GORM models with status constants.
+- `internal/review/dto.go`: `TaskDTO`, `TaskListDTO`, `DecisionInput`.
+- `internal/review/repository.go`: CRUD for tasks and events with transaction support.
+- `internal/review/service.go`: `CreateInTx`, `List`, `GetByID`, `Decide` — multi-table transaction for task + note + event.
+- `internal/review/handler.go`: Admin review APIs with `requireAdmin` middleware.
+- `internal/review/handler_test.go`: Integration tests for approve/reject/non-admin/invalid-decision flows.
+- `internal/note/service.go`: Added `ReviewTaskCreator` interface, creates review task in publish transaction.
+- `internal/note/repository.go`: Added `UpdateNoteStatus`, `UpdateReviewTaskID`.
+- `internal/http/router.go`: Added `ReviewRoutes` field.
+- `cmd/server/main.go`: Wired review module, passed `reviewService` as `ReviewTaskCreator` to note service.
+
+### Go Backend Notes
+
+- **Transaction boundary**: The review `Decide` method wraps task read + update, note status update, and event creation in a single `db.Transaction()`. If any step fails, all roll back.
+- **Interface for cross-module dependency**: The note package defines `ReviewTaskCreator` interface. The review package's `Service` satisfies it. `main.go` wires them together. This avoids circular imports.
+- **Admin authorization**: The review handler adds `requireAdmin` middleware that checks `claims.Role != "admin"`. This is chained after `requireAuth` in a Gin route group.
+- **Audit trail**: Every state transition creates a `review_task_event` record with actor type, actor ID, and JSON payload.
+- **Idempotency guard**: `Decide` rejects requests on already-decided tasks with `ErrAlreadyDecided`.
+
+### Java Spring Boot Comparison
+
+- `db.Transaction(...)` ≈ Spring `@Transactional`.
+- `ReviewTaskCreator` interface ≈ Spring `@Autowired` with interface injection.
+- `requireAdmin` middleware chain ≈ Spring Security's `@PreAuthorize("hasRole('admin')")`.
+- Audit event table ≈ Spring Data Envers or a custom `@EntityListener`.
+
+### Verification
+
+- `go test -count=1 ./...` — all packages pass including 4 review tests.
+- Publishing a note now creates a `review_tasks` row with `status = pending_agent`.
+- Admin approve → note status becomes `published`, `published_at` is set.
+- Admin reject → note status becomes `rejected`.
+- Non-admin gets 403 on admin endpoints.
+- Invalid decision gets 400.
+- Already-decided task gets 409.
+
+### Next Stage
+
+Stage 5 should expose internal content analysis APIs:
+
+- `X-Internal-Token` authentication middleware.
+- Pending task pull, review context, agent result callback.
+- Idempotent agent callbacks.

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"gorm.io/gorm"
 )
@@ -101,6 +102,18 @@ func (r *Repository) FindImagesByNoteID(ctx context.Context, noteID uint64) ([]*
 	var images []*NoteImage
 	err := r.db.WithContext(ctx).Where("note_id = ?", noteID).Order("sort_order").Find(&images).Error
 	return images, err
+}
+
+func (r *Repository) UpdateNoteStatus(ctx context.Context, tx *gorm.DB, noteID uint64, status string, publishedAt *time.Time) error {
+	updates := map[string]any{"status": status}
+	if publishedAt != nil {
+		updates["published_at"] = *publishedAt
+	}
+	return d(r.db, tx).WithContext(ctx).Model(&Note{}).Where("id = ?", noteID).Updates(updates).Error
+}
+
+func (r *Repository) UpdateReviewTaskID(ctx context.Context, tx *gorm.DB, noteID, taskID uint64) error {
+	return d(r.db, tx).WithContext(ctx).Model(&Note{}).Where("id = ?", noteID).Update("review_task_id", taskID).Error
 }
 
 func ExtractStorageKey(url string) string {

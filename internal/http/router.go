@@ -20,6 +20,7 @@ type RouterOptions struct {
 	AccountRoutes    AccountRoutes
 	NoteRoutes       AccountRoutes
 	UploadRoutes     AccountRoutes
+	ReviewRoutes     AccountRoutes
 	JWTManager       *auth.JWTManager
 	UploadStaticDir  string
 }
@@ -55,6 +56,10 @@ func NewRouter(options RouterOptions) http.Handler {
 
 	if options.NoteRoutes != nil {
 		options.NoteRoutes.RegisterRoutes(router.Group("/api"), middleware.AuthRequired(options.JWTManager))
+	}
+
+	if options.ReviewRoutes != nil {
+		options.ReviewRoutes.RegisterRoutes(router.Group("/api"), middleware.AuthRequired(options.JWTManager))
 	}
 
 	if options.UploadStaticDir != "" {

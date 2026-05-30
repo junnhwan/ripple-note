@@ -15,13 +15,18 @@ type AuthorProvider interface {
 	FindByID(ctx context.Context, id uint64) (AuthorDTO, error)
 }
 
-type Service struct {
-	repo  *Repository
-	users AuthorProvider
+type ReviewTaskCreator interface {
+	CreateInTx(ctx context.Context, tx *gorm.DB, noteID, authorID uint64, source string) (uint64, error)
 }
 
-func NewService(repo *Repository, users AuthorProvider) *Service {
-	return &Service{repo: repo, users: users}
+type Service struct {
+	repo              *Repository
+	users             AuthorProvider
+	reviewTaskCreator ReviewTaskCreator
+}
+
+func NewService(repo *Repository, users AuthorProvider, reviewTaskCreator ReviewTaskCreator) *Service {
+	return &Service{repo: repo, users: users, reviewTaskCreator: reviewTaskCreator}
 }
 
 func (s *Service) Publish(ctx context.Context, input PublishInput, authorID uint64) (NoteDTO, error) {
@@ -67,6 +72,15 @@ func (s *Service) Publish(ctx context.Context, input PublishInput, authorID uint
 		if err := s.repo.CreateNoteImages(ctx, tx, images); err != nil {
 			return err
 		}
+			if s.reviewTaskCreator != nil {
+				taskID, err := s.reviewTaskCreator.CreateInTx(ctx, tx, note.ID, authorID, "publish")
+				if err != nil {
+					return err
+				}
+				if err := s.repo.UpdateReviewTaskID(ctx, tx, note.ID, taskID); err != nil {
+					return err
+				}
+			}
 
 		return nil
 	})

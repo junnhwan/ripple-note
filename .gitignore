@@ -1,0 +1,15 @@
+# Local agent collaboration notes. Keep these out of git.
+AGENTS.md
+MEMORY.md
+
+# Local secrets and machine-specific config.
+.env
+.env.*
+
+openspec
+.claude
+.codex
+.gemini
+.opencode
+.trae
+

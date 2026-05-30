@@ -1,0 +1,86 @@
+openapi: 3.0.3
+info:
+  title: 知涟 API
+  version: 0.1.0
+  description: |
+    知涟是内容社区与 Feed 分发平台。本文件从 Stage 1 开始维护 API 契约，
+    后续阶段会逐步补充账号、内容发布、治理审核、Feed 与交互接口。
+servers:
+  - url: http://127.0.0.1:8080
+    description: Local development server
+paths:
+  /health:
+    get:
+      summary: Health check
+      description: 返回服务健康状态，响应必须使用统一 JSON 包装并包含 request_id。
+      operationId: getHealth
+      responses:
+        "200":
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessResponse"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/HealthData"
+              examples:
+                ok:
+                  value:
+                    data:
+                      status: ok
+                    error: null
+                    request_id: req_01hzy6j6r7m9w2w5q5x8k9z0a1
+components:
+  schemas:
+    SuccessResponse:
+      type: object
+      required:
+        - data
+        - error
+        - request_id
+      properties:
+        data:
+          nullable: true
+        error:
+          nullable: true
+        request_id:
+          type: string
+          description: Request trace identifier returned in every API response.
+    ErrorResponse:
+      type: object
+      required:
+        - data
+        - error
+        - request_id
+      properties:
+        data:
+          nullable: true
+          example: null
+        error:
+          $ref: "#/components/schemas/APIError"
+        request_id:
+          type: string
+    APIError:
+      type: object
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: string
+          example: validation_error
+        message:
+          type: string
+          example: title is required
+    HealthData:
+      type: object
+      required:
+        - status
+      properties:
+        status:
+          type: string
+          enum:
+            - ok

@@ -17,6 +17,7 @@ import (
 	"ripple-note/internal/feed"
 	"ripple-note/internal/follow"
 	httpapi "ripple-note/internal/http"
+	"ripple-note/internal/interaction"
 	"ripple-note/internal/middleware"
 	"ripple-note/internal/note"
 	"ripple-note/internal/observability"
@@ -34,11 +35,7 @@ func (p *userAuthorProvider) FindByID(ctx context.Context, id uint64) (note.Auth
 	if err != nil {
 		return note.AuthorDTO{}, err
 	}
-	return note.AuthorDTO{
-		ID:        user.ID,
-		Nickname:  user.Nickname,
-		AvatarURL: user.AvatarURL,
-	}, nil
+	return note.AuthorDTO{ID: user.ID, Nickname: user.Nickname, AvatarURL: user.AvatarURL}, nil
 }
 
 func main() {
@@ -59,12 +56,13 @@ func main() {
 	})
 
 	var (
-		accountRoutes  httpapi.AccountRoutes
-		noteRoutes     httpapi.AccountRoutes
-		uploadRoutes   httpapi.AccountRoutes
-		reviewRoutes   httpapi.AccountRoutes
-		feedRoutes     httpapi.AccountRoutes
-		internalRoutes httpapi.InternalRoutes
+		accountRoutes     httpapi.AccountRoutes
+		noteRoutes        httpapi.AccountRoutes
+		uploadRoutes      httpapi.AccountRoutes
+		reviewRoutes      httpapi.AccountRoutes
+		feedRoutes        httpapi.AccountRoutes
+		interactionRoutes httpapi.AccountRoutes
+		internalRoutes    httpapi.InternalRoutes
 	)
 
 	if cfg.MySQL.Enabled {
@@ -88,6 +86,10 @@ func main() {
 			&note.NoteTag{},
 			&review.ReviewTask{},
 			&review.ReviewTaskEvent{},
+			&interaction.NoteLike{},
+			&interaction.NoteFavorite{},
+			&interaction.Comment{},
+			&interaction.Follow{},
 		); err != nil {
 			logger.Error("auto migrate mysql failed", "error", err)
 			os.Exit(1)
@@ -112,9 +114,12 @@ func main() {
 		uploadRoutes = upload.NewHandler(cfg.Upload.ImageDir, cfg.Upload.MaxImageSize)
 
 		feedRepo := feed.NewRepository(db)
-		followProvider := &follow.StubFollowProvider{}
+		interactionRepo := interaction.NewRepository(db)
+		followProvider := follow.NewProvider(interactionRepo)
 		feedService := feed.NewService(db, feedRepo, noteRepo, authorProvider, followProvider)
 		feedRoutes = feed.NewHandler(feedService, optionalAuth)
+
+		interactionRoutes = interaction.NewHandler(interactionRepo)
 
 		logger.Info("mysql connected")
 	} else {
@@ -124,16 +129,17 @@ func main() {
 	server := &http.Server{
 		Addr: cfg.Addr(),
 		Handler: httpapi.NewRouter(httpapi.RouterOptions{
-			Logger:          logger,
-			AccountRoutes:   accountRoutes,
-			NoteRoutes:      noteRoutes,
-			UploadRoutes:    uploadRoutes,
-			ReviewRoutes:    reviewRoutes,
-			FeedRoutes:      feedRoutes,
-			JWTManager:      jwtManager,
-			UploadStaticDir: cfg.Upload.ImageDir,
-			InternalRoutes:  internalRoutes,
-			InternalToken:   cfg.Review.InternalToken,
+			Logger:            logger,
+			AccountRoutes:     accountRoutes,
+			NoteRoutes:        noteRoutes,
+			UploadRoutes:      uploadRoutes,
+			ReviewRoutes:      reviewRoutes,
+			FeedRoutes:        feedRoutes,
+			InteractionRoutes: interactionRoutes,
+			JWTManager:        jwtManager,
+			UploadStaticDir:   cfg.Upload.ImageDir,
+			InternalRoutes:    internalRoutes,
+			InternalToken:     cfg.Review.InternalToken,
 		}),
 		ReadTimeout:  cfg.HTTP.ReadTimeout,
 		WriteTimeout: cfg.HTTP.WriteTimeout,

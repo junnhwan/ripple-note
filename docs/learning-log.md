@@ -354,3 +354,54 @@ Stage 7 should add interactions and social graph:
 
 - Like, favorite, comment, follow APIs.
 - Idempotent design for repeated operations.
+
+## 2026-05-30 Stage 7: Interactions And Social Graph
+
+### Stage Goal
+
+Add like, favorite, comment, and follow APIs with idempotent design for repeated operations.
+
+### Files Created
+
+- `internal/interaction/model.go`: `note_likes`, `note_favorites`, `comments`, `follows` GORM models.
+- `internal/interaction/dto.go`: `CommentDTO`, `CommentListDTO`.
+- `internal/interaction/repository.go`: Idempotent upsert/delete for likes/favorites/follows, comment CRUD, follow graph queries.
+- `internal/interaction/handler.go`: HTTP handlers for all interaction endpoints.
+- `internal/interaction/handler_test.go`: 4 tests covering like/unlike idempotency, favorite, comment, follow/unfollow.
+
+### Files Modified
+
+- `internal/follow/provider.go`: Replaced stub with real `Provider` using interaction repository.
+- `internal/http/router.go`: Added `InteractionRoutes` field.
+- `cmd/server/main.go`: Wired interaction module, replaced follow stub with real provider.
+
+### Go Backend Notes
+
+- **Idempotent like**: `UpsertLike` uses `Unscoped().First()` to find soft-deleted records. If a previously unliked record exists, it restores it (sets `deleted_at = nil`) instead of creating a duplicate. This prevents unique index violations.
+- **Soft delete with unique index**: The `note_likes` and `note_favorites` tables use composite unique indexes that include `deleted_at`, allowing a re-like after unlike without violating uniqueness.
+- **Counter safety**: `DeleteLike` checks `RowsAffected` before decrementing, and the UPDATE query has `likes_count > 0` guard to prevent negative counts.
+- **Follow graph**: `FollowingIDs` uses `Pluck` to efficiently fetch just the IDs needed by the feed query.
+- **Self-follow prevention**: Handler rejects `userID == targetID` with 400.
+
+### Java Spring Boot Comparison
+
+- Idempotent upsert ≈ Spring Data JPA's `findById` + `save` pattern with `@Transactional`.
+- Soft delete with unique index ≈ Hibernate's `@SQLDelete` with composite unique constraint.
+- Counter update with `gorm.Expr("likes_count + 1")` ≈ JPQL `UPDATE ... SET likes_count = likes_count + 1`.
+
+### Verification
+
+- `go test -count=1 ./...` — all packages pass including 4 interaction tests.
+- Repeated like does not double-count; count stays at 1.
+- Repeated unlike does not make counts negative; count stays at 0.
+- Repeated follow returns `following: false` with message "already following".
+- Self-follow returns 400.
+- Comment creation increments `notes.comments_count`.
+- Comment listing is public (no auth required).
+
+### Next Stage
+
+Stage 8 should add Redis caching:
+
+- Feed first-page cache, content detail cache, interaction count cache.
+- Active invalidation after content state changes.

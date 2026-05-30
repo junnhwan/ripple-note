@@ -1,10 +1,25 @@
 package follow
 
-import "context"
+import (
+	"context"
 
-// StubFollowProvider returns empty follow lists until Stage 7 implements follows.
-type StubFollowProvider struct{}
+	"ripple-note/internal/interaction"
+)
 
-func (s *StubFollowProvider) FollowingIDs(_ context.Context, _ uint64) ([]uint64, error) {
+type Provider struct {
+	repo *interaction.Repository
+}
+
+func NewProvider(repo *interaction.Repository) *Provider {
+	return &Provider{repo: repo}
+}
+
+func (p *Provider) FollowingIDs(ctx context.Context, userID uint64) ([]uint64, error) {
+	return p.repo.FollowingIDs(ctx, userID)
+}
+
+type StubProvider struct{}
+
+func (s *StubProvider) FollowingIDs(_ context.Context, _ uint64) ([]uint64, error) {
 	return nil, nil
 }

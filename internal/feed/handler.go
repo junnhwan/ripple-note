@@ -29,8 +29,8 @@ func NewHandler(service FeedService, optionalAuth gin.HandlerFunc) *Handler {
 
 func (h *Handler) RegisterRoutes(router gin.IRouter, requireAuth gin.HandlerFunc) {
 	feed := router.Group("/feed")
-	feed.GET("/latest", h.Latest)
-	feed.GET("/hot", h.Hot)
+	feed.GET("/latest", h.optionalAuth, h.Latest)
+	feed.GET("/hot", h.optionalAuth, h.Hot)
 	feed.GET("/following", requireAuth, h.Following)
 	router.GET("/tags/:tagName/feed", h.optionalAuth, h.ByTag)
 }

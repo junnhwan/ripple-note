@@ -161,7 +161,8 @@ func main() {
 
 		// Internal handler with real author info provider.
 		authorInfo := &authorInfoAdapter{userRepo: userRepo, noteRepo: noteRepo}
-		internalRoutes = review.NewInternalHandler(reviewRepo, noteRepo, authorInfo)
+		internalHandler := review.NewInternalHandler(reviewRepo, noteRepo, authorInfo)
+		internalRoutes = internalHandler
 
 		// --- Outbox ---
 		outboxRepo := outbox.NewRepository(db)
@@ -211,9 +212,10 @@ func main() {
 				logger.Info("rabbitmq connected")
 			}
 
-			// Wire cache invalidation into review service.
+			// Wire cache invalidation into review service and internal handler.
 		if cacheInvalidator != nil {
 			reviewService.SetCacheInvalidator(cacheInvalidator)
+			internalHandler.SetCacheInvalidator(cacheInvalidator)
 		}
 
 		logger.Info("mysql connected")

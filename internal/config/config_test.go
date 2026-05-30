@@ -24,8 +24,8 @@ func TestLoadLocalConfigAppliesYAMLAndDefaults(t *testing.T) {
 	if cfg.HTTP.ReadTimeout != 5*time.Second {
 		t.Fatalf("expected read timeout 5s, got %s", cfg.HTTP.ReadTimeout)
 	}
-	if cfg.MySQL.Enabled {
-		t.Fatal("expected local MySQL to be disabled in Stage 1")
+	if !cfg.MySQL.Enabled {
+		t.Fatal("expected local MySQL to be enabled")
 	}
 	if cfg.MySQL.DSN == "" {
 		t.Fatal("expected MySQL DSN to be present for later stages")

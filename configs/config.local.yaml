@@ -11,9 +11,8 @@ log:
   level: info
 
 mysql:
-  # Stage 1 keeps MySQL optional so the skeleton and /health can run before Docker Compose exists.
-  enabled: false
-  dsn: "root:root@tcp(127.0.0.1:3306)/ripple_note?charset=utf8mb4&parseTime=True&loc=Local"
+  enabled: true
+  dsn: "root:dev123456@tcp(127.0.0.1:13306)/ripple_note?charset=utf8mb4&parseTime=True&loc=Local"
   max_open_connections: 20
   max_idle_connections: 10
   connection_max_lifetime: 1h

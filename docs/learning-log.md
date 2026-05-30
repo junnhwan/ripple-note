@@ -120,6 +120,23 @@ Stage 2 should add account and authentication:
 - `go run ./cmd/server -config configs/config.local.yaml`
 - `GET http://127.0.0.1:8080/health` returned a unified response with `request_id`.
 
+Runtime acceptance with real MySQL (Docker `mysql-dev` on port 13306):
+
+| Request | Status | Notes |
+|---------|--------|-------|
+| `POST /api/users` register | 201 | New user created, password hashed with bcrypt |
+| `POST /api/users` duplicate email | 409 | `email_already_registered` |
+| `POST /api/sessions` login | 200 | Returns JWT token + user DTO |
+| `POST /api/sessions` wrong password | 401 | `invalid_credentials` |
+| `GET /api/users/me` with Bearer token | 200 | Returns authenticated user profile |
+| `GET /api/users/me` without token | 401 | `authentication is required` |
+
+Key runtime observations:
+
+- AutoMigrate creates the `users` table on server startup when MySQL is enabled.
+- `mysql.enabled: true` in `config.local.yaml` is what activates the account routes; when false, the router has no `/api/*` handlers and returns 404.
+- GORM logs `record not found` during the first registration's duplicate-check query — this is normal behavior, not an error.
+
 ### Next Stage
 
 Stage 3 should add content publishing and upload workflow:

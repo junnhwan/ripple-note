@@ -202,10 +202,11 @@ func newReviewTestRouter(t *testing.T) (http.Handler, *gorm.DB) {
 	reviewRepo := review.NewRepository(db)
 	reviewService := review.NewService(reviewRepo, noteRepo)
 	reviewHandler := review.NewHandler(reviewService)
-		internalHandler := review.NewInternalHandler(reviewRepo, noteRepo)
+		testAuthorInfo := &testAuthorInfoProvider{repo: userRepo, db: db}
+		internalHandler := review.NewInternalHandler(reviewRepo, noteRepo, testAuthorInfo)
 
 	authorProvider := &testAuthorProvider{repo: userRepo}
-	noteService := note.NewService(noteRepo, authorProvider, reviewService)
+	noteService := note.NewService(noteRepo, authorProvider, reviewService, nil)
 	optionalAuth := middleware.OptionalAuth(jwtManager)
 	noteHandler := note.NewHandler(noteService, optionalAuth)
 
@@ -220,6 +221,23 @@ func newReviewTestRouter(t *testing.T) (http.Handler, *gorm.DB) {
 	})
 
 	return router, db
+}
+
+type testAuthorInfoProvider struct {
+	repo *account.GormUserRepository
+	db   *gorm.DB
+}
+
+func (a *testAuthorInfoProvider) FindAuthorInfo(ctx context.Context, userID uint64) (review.AuthorInfo, error) {
+	user, err := a.repo.FindByID(ctx, userID)
+	if err != nil {
+		return review.AuthorInfo{}, err
+	}
+	return review.AuthorInfo{
+		ID:        user.ID,
+		Nickname:  user.Nickname,
+		AvatarURL: user.AvatarURL,
+	}, nil
 }
 
 type testAuthorProvider struct {

@@ -1,8 +1,9 @@
 package review
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"time"
 
@@ -13,13 +14,31 @@ import (
 	"ripple-note/internal/note"
 )
 
-type InternalHandler struct {
-	reviewRepo *Repository
-	noteRepo   *note.Repository
+// AuthorInfoProvider fetches real author profile data for review context.
+type AuthorInfoProvider interface {
+	FindAuthorInfo(ctx context.Context, userID uint64) (AuthorInfo, error)
 }
 
-func NewInternalHandler(reviewRepo *Repository, noteRepo *note.Repository) *InternalHandler {
-	return &InternalHandler{reviewRepo: reviewRepo, noteRepo: noteRepo}
+// AuthorInfo enriches the review context with real author profile and stats.
+type AuthorInfo struct {
+	ID              uint64 `json:"id"`
+	Nickname        string `json:"nickname"`
+	AvatarURL       string `json:"avatar_url"`
+	Bio             string `json:"bio"`
+	NotesCount      int64  `json:"notes_count"`
+	PublishedCount  int64  `json:"published_count"`
+	RejectedCount   int64  `json:"rejected_count"`
+	RegisteredDays  int    `json:"registered_days"`
+}
+
+type InternalHandler struct {
+	reviewRepo    *Repository
+	noteRepo      *note.Repository
+	authorInfo    AuthorInfoProvider
+}
+
+func NewInternalHandler(reviewRepo *Repository, noteRepo *note.Repository, authorInfo AuthorInfoProvider) *InternalHandler {
+	return &InternalHandler{reviewRepo: reviewRepo, noteRepo: noteRepo, authorInfo: authorInfo}
 }
 
 func (h *InternalHandler) RegisterRoutes(router gin.IRouter, internalAuth gin.HandlerFunc) {
@@ -66,9 +85,10 @@ func (h *InternalHandler) GetTask(c *gin.Context) {
 }
 
 type ReviewContextDTO struct {
-	Note   NoteContextDTO `json:"note"`
-	Author AuthorInfoDTO  `json:"author"`
-	Images []ImageInfoDTO `json:"images"`
+	Note        NoteContextDTO `json:"note"`
+	Author      AuthorInfo     `json:"author"`
+	Images      []ImageInfoDTO `json:"images"`
+	Tags        []string       `json:"tags"`
 }
 
 type NoteContextDTO struct {
@@ -76,11 +96,6 @@ type NoteContextDTO struct {
 	Title  string `json:"title"`
 	Body   string `json:"body"`
 	Status string `json:"status"`
-}
-
-type AuthorInfoDTO struct {
-	ID       uint64 `json:"id"`
-	Nickname string `json:"nickname"`
 }
 
 type ImageInfoDTO struct {
@@ -100,11 +115,24 @@ func (h *InternalHandler) GetReviewContext(c *gin.Context) {
 		return
 	}
 
-	images, _ := h.noteRepo.FindImagesByNoteID(c.Request.Context(), noteID)
+	// Fetch real author profile with stats.
+	authorInfo, err := h.authorInfo.FindAuthorInfo(c.Request.Context(), n.AuthorID)
+	if err != nil {
+		httpapi.Error(c, http.StatusInternalServerError, "internal_error", "failed to fetch author info")
+		return
+	}
+
+	images, err := h.noteRepo.FindImagesByNoteID(c.Request.Context(), noteID)
+	if err != nil {
+		httpapi.Error(c, http.StatusInternalServerError, "internal_error", "failed to fetch images")
+		return
+	}
 	imageDTOs := make([]ImageInfoDTO, 0, len(images))
 	for _, img := range images {
 		imageDTOs = append(imageDTOs, ImageInfoDTO{URL: img.URL})
 	}
+
+	tags, _ := h.noteRepo.FindTagNamesByNoteID(c.Request.Context(), noteID)
 
 	httpapi.OK(c, ReviewContextDTO{
 		Note: NoteContextDTO{
@@ -113,11 +141,9 @@ func (h *InternalHandler) GetReviewContext(c *gin.Context) {
 			Body:   n.Body,
 			Status: n.Status,
 		},
-		Author: AuthorInfoDTO{
-			ID:       n.AuthorID,
-			Nickname: fmt.Sprintf("user_%d", n.AuthorID),
-		},
+		Author: authorInfo,
 		Images: imageDTOs,
+		Tags:   tags,
 	})
 }
 
@@ -165,6 +191,13 @@ func (h *InternalHandler) SubmitAgentResult(c *gin.Context) {
 			return err
 		}
 
+		// Idempotent: if same decision was already applied with same trace_id, return success.
+		if task.AgentDecision != nil && *task.AgentDecision == req.Decision &&
+			task.AgentTraceID != nil && *task.AgentTraceID == req.TraceID {
+			return nil // already processed, return success
+		}
+
+		// Reject conflicting decisions from different traces.
 		if task.Status != TaskStatusPendingAgent {
 			return ErrAlreadyDecided
 		}
@@ -190,12 +223,17 @@ func (h *InternalHandler) SubmitAgentResult(c *gin.Context) {
 			}
 		}
 
+		payload, _ := json.Marshal(map[string]any{
+			"decision":   req.Decision,
+			"risk_level": req.RiskLevel,
+			"trace_id":   req.TraceID,
+		})
 		event := &ReviewTaskEvent{
 			TaskID:      task.ID,
 			ActorType:   ActorTypeAgent,
 			ActorID:     "ripple-guard-agent",
 			EventType:   "agent_decided",
-			PayloadJSON: fmt.Sprintf(`{"decision":"%s","risk_level":"%s","trace_id":"%s"}`, req.Decision, req.RiskLevel, req.TraceID),
+			PayloadJSON: string(payload),
 		}
 		return h.reviewRepo.CreateEvent(c.Request.Context(), tx, event)
 	})

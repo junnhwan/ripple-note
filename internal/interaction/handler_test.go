@@ -225,7 +225,7 @@ func newInteractionTestRouter(t *testing.T) (http.Handler, *gorm.DB) {
 	reviewService := review.NewService(reviewRepo, noteRepo)
 
 	authorProvider := &testAuthorProvider{repo: userRepo}
-	noteService := note.NewService(noteRepo, authorProvider, reviewService)
+	noteService := note.NewService(noteRepo, authorProvider, reviewService, nil)
 	optionalAuth := middleware.OptionalAuth(jwtManager)
 	noteHandler := note.NewHandler(noteService, optionalAuth)
 

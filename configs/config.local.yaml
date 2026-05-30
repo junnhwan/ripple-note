@@ -32,5 +32,10 @@ upload:
 redis:
   enabled: true
   addr: "127.0.0.1:6379"
-  password: ""
+  password: "zjh060320"
   db: 0
+
+rabbitmq:
+  enabled: true
+  dsn: "amqp://guest:guest@127.0.0.1:5672/"
+  exchange: "ripple-note-events"

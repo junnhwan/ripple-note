@@ -12,10 +12,10 @@ import (
 )
 
 type FeedService interface {
-	Latest(ctx context.Context, cursor string, limit int) (FeedResult, error)
-	Hot(ctx context.Context, cursor string, limit int) (FeedResult, error)
+	Latest(ctx context.Context, viewerID uint64, cursor string, limit int) (FeedResult, error)
+	Hot(ctx context.Context, viewerID uint64, cursor string, limit int) (FeedResult, error)
 	Following(ctx context.Context, userID uint64, cursor string, limit int) (FeedResult, error)
-	ByTag(ctx context.Context, tagName, cursor string, limit int) (FeedResult, error)
+	ByTag(ctx context.Context, viewerID uint64, tagName, cursor string, limit int) (FeedResult, error)
 }
 
 type Handler struct {
@@ -35,11 +35,19 @@ func (h *Handler) RegisterRoutes(router gin.IRouter, requireAuth gin.HandlerFunc
 	router.GET("/tags/:tagName/feed", h.ByTag)
 }
 
+func (h *Handler) viewerID(c *gin.Context) uint64 {
+	claims, ok := middleware.AuthClaimsFromContext(c)
+	if !ok {
+		return 0
+	}
+	return claims.UserID
+}
+
 func (h *Handler) Latest(c *gin.Context) {
 	cursor := c.Query("cursor")
 	limit := parseLimitQuery(c)
 
-	result, err := h.service.Latest(c.Request.Context(), cursor, limit)
+	result, err := h.service.Latest(c.Request.Context(), h.viewerID(c), cursor, limit)
 	if err != nil {
 		httpapi.Error(c, http.StatusInternalServerError, "internal_error", "internal server error")
 		return
@@ -51,7 +59,7 @@ func (h *Handler) Hot(c *gin.Context) {
 	cursor := c.Query("cursor")
 	limit := parseLimitQuery(c)
 
-	result, err := h.service.Hot(c.Request.Context(), cursor, limit)
+	result, err := h.service.Hot(c.Request.Context(), h.viewerID(c), cursor, limit)
 	if err != nil {
 		httpapi.Error(c, http.StatusInternalServerError, "internal_error", "internal server error")
 		return
@@ -82,7 +90,7 @@ func (h *Handler) ByTag(c *gin.Context) {
 	cursor := c.Query("cursor")
 	limit := parseLimitQuery(c)
 
-	result, err := h.service.ByTag(c.Request.Context(), tagName, cursor, limit)
+	result, err := h.service.ByTag(c.Request.Context(), h.viewerID(c), tagName, cursor, limit)
 	if err != nil {
 		httpapi.Error(c, http.StatusInternalServerError, "internal_error", "internal server error")
 		return

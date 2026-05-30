@@ -18,7 +18,7 @@ func NewRepository(db *gorm.DB) *Repository {
 
 func (r *Repository) ListLatest(ctx context.Context, cursor Cursor, limit int) ([]*note.Note, error) {
 	query := r.db.WithContext(ctx).
-		Where("status = ? AND published_at IS NOT NULL", note.StatusPublished).
+		Where("status = ? AND visibility = ? AND published_at IS NOT NULL", note.StatusPublished, note.VisibilityPublic).
 		Order("published_at DESC, id DESC")
 
 	query = applyLatestCursor(query, cursor)
@@ -33,7 +33,7 @@ func (r *Repository) ListLatest(ctx context.Context, cursor Cursor, limit int) (
 
 func (r *Repository) ListHot(ctx context.Context, cursor Cursor, limit int) ([]*note.Note, error) {
 	query := r.db.WithContext(ctx).
-		Where("status = ? AND published_at IS NOT NULL", note.StatusPublished).
+		Where("status = ? AND visibility = ? AND published_at IS NOT NULL", note.StatusPublished, note.VisibilityPublic).
 		Order("hot_score DESC, id DESC")
 
 	query = applyHotCursor(query, cursor)
@@ -51,7 +51,7 @@ func (r *Repository) ListByAuthorIDs(ctx context.Context, authorIDs []uint64, cu
 		return nil, nil
 	}
 	query := r.db.WithContext(ctx).
-		Where("status = ? AND published_at IS NOT NULL AND author_id IN ?", note.StatusPublished, authorIDs).
+		Where("status = ? AND visibility = ? AND published_at IS NOT NULL AND author_id IN ?", note.StatusPublished, note.VisibilityPublic, authorIDs).
 		Order("published_at DESC, id DESC")
 
 	query = applyLatestCursor(query, cursor)
@@ -67,7 +67,7 @@ func (r *Repository) ListByAuthorIDs(ctx context.Context, authorIDs []uint64, cu
 func (r *Repository) ListByTagID(ctx context.Context, tagID uint64, cursor Cursor, limit int) ([]*note.Note, error) {
 	query := r.db.WithContext(ctx).
 		Joins("JOIN note_tags ON note_tags.note_id = notes.id").
-		Where("notes.status = ? AND notes.published_at IS NOT NULL AND note_tags.tag_id = ?", note.StatusPublished, tagID).
+		Where("notes.status = ? AND notes.visibility = ? AND notes.published_at IS NOT NULL AND note_tags.tag_id = ?", note.StatusPublished, note.VisibilityPublic, tagID).
 		Order("notes.published_at DESC, notes.id DESC")
 
 	query = applyLatestCursor(query, cursor)

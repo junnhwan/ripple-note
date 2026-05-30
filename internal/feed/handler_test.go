@@ -233,13 +233,13 @@ func newFeedTestRouter(t *testing.T) (http.Handler, *gorm.DB) {
 	reviewService := review.NewService(reviewRepo, noteRepo)
 
 	authorProvider := &testFeedAuthorProvider{repo: userRepo}
-	noteService := note.NewService(noteRepo, authorProvider, reviewService)
+	noteService := note.NewService(noteRepo, authorProvider, reviewService, nil)
 	optionalAuth := middleware.OptionalAuth(jwtManager)
 	noteHandler := note.NewHandler(noteService, optionalAuth)
 
 	feedRepo := feed.NewRepository(db)
 	followProvider := &stubFollowProvider{}
-	feedService := feed.NewService(db, feedRepo, noteRepo, authorProvider, followProvider)
+	feedService := feed.NewService(db, feedRepo, noteRepo, authorProvider, followProvider, nil)
 	feedHandler := feed.NewHandler(feedService, optionalAuth)
 
 	router := httpapi.NewRouter(httpapi.RouterOptions{

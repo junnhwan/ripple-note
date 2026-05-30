@@ -1,6 +1,7 @@
 package interaction
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strconv"
@@ -12,12 +13,22 @@ import (
 	"ripple-note/internal/middleware"
 )
 
-type Handler struct {
-	repo *Repository
+// NoteCacheInvalidator invalidates note-related caches after interactions.
+type NoteCacheInvalidator interface {
+	InvalidateNoteCache(ctx context.Context, noteID uint64)
 }
 
-func NewHandler(repo *Repository) *Handler {
-	return &Handler{repo: repo}
+type Handler struct {
+	repo     *Repository
+	cache    NoteCacheInvalidator
+}
+
+func NewHandler(repo *Repository, cache ...NoteCacheInvalidator) *Handler {
+	h := &Handler{repo: repo}
+	if len(cache) > 0 {
+		h.cache = cache[0]
+	}
+	return h
 }
 
 func (h *Handler) RegisterRoutes(router gin.IRouter, requireAuth gin.HandlerFunc) {
@@ -31,10 +42,24 @@ func (h *Handler) RegisterRoutes(router gin.IRouter, requireAuth gin.HandlerFunc
 	router.DELETE("/users/me/following/:targetUserId", requireAuth, h.Unfollow)
 }
 
+func (h *Handler) invalidateNote(ctx context.Context, noteID uint64) {
+	if h.cache != nil {
+		h.cache.InvalidateNoteCache(ctx, noteID)
+	}
+}
+
 func (h *Handler) Like(c *gin.Context) {
 	noteID, err := parseNoteID(c.Param("noteId"))
 	if err != nil {
 		httpapi.Error(c, http.StatusBadRequest, "invalid_note_id", "note id must be a positive integer")
+		return
+	}
+	if err := h.repo.NoteAvailable(c.Request.Context(), noteID); err != nil {
+		if errors.Is(err, ErrNoteNotAvailable) {
+			httpapi.Error(c, http.StatusNotFound, "note_not_found", "note not found or not available for interaction")
+			return
+		}
+		httpapi.Error(c, http.StatusInternalServerError, "internal_error", "internal server error")
 		return
 	}
 	claims, _ := middleware.AuthClaimsFromContext(c)
@@ -43,6 +68,7 @@ func (h *Handler) Like(c *gin.Context) {
 		httpapi.Error(c, http.StatusInternalServerError, "internal_error", "internal server error")
 		return
 	}
+	h.invalidateNote(c.Request.Context(), noteID)
 	if created {
 		httpapi.OK(c, gin.H{"liked": true})
 	} else {
@@ -62,6 +88,7 @@ func (h *Handler) Unlike(c *gin.Context) {
 		httpapi.Error(c, http.StatusInternalServerError, "internal_error", "internal server error")
 		return
 	}
+	h.invalidateNote(c.Request.Context(), noteID)
 	httpapi.OK(c, gin.H{"unliked": removed})
 }
 
@@ -71,12 +98,21 @@ func (h *Handler) Favorite(c *gin.Context) {
 		httpapi.Error(c, http.StatusBadRequest, "invalid_note_id", "note id must be a positive integer")
 		return
 	}
+	if err := h.repo.NoteAvailable(c.Request.Context(), noteID); err != nil {
+		if errors.Is(err, ErrNoteNotAvailable) {
+			httpapi.Error(c, http.StatusNotFound, "note_not_found", "note not found or not available for interaction")
+			return
+		}
+		httpapi.Error(c, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
 	claims, _ := middleware.AuthClaimsFromContext(c)
 	created, err := h.repo.UpsertFavorite(c.Request.Context(), claims.UserID, noteID)
 	if err != nil {
 		httpapi.Error(c, http.StatusInternalServerError, "internal_error", "internal server error")
 		return
 	}
+	h.invalidateNote(c.Request.Context(), noteID)
 	if created {
 		httpapi.OK(c, gin.H{"favorited": true})
 	} else {
@@ -96,6 +132,7 @@ func (h *Handler) Unfavorite(c *gin.Context) {
 		httpapi.Error(c, http.StatusInternalServerError, "internal_error", "internal server error")
 		return
 	}
+	h.invalidateNote(c.Request.Context(), noteID)
 	httpapi.OK(c, gin.H{"unfavorited": removed})
 }
 
@@ -107,6 +144,14 @@ func (h *Handler) CreateComment(c *gin.Context) {
 	noteID, err := parseNoteID(c.Param("noteId"))
 	if err != nil {
 		httpapi.Error(c, http.StatusBadRequest, "invalid_note_id", "note id must be a positive integer")
+		return
+	}
+	if err := h.repo.NoteAvailable(c.Request.Context(), noteID); err != nil {
+		if errors.Is(err, ErrNoteNotAvailable) {
+			httpapi.Error(c, http.StatusNotFound, "note_not_found", "note not found or not available for interaction")
+			return
+		}
+		httpapi.Error(c, http.StatusInternalServerError, "internal_error", "internal server error")
 		return
 	}
 	claims, _ := middleware.AuthClaimsFromContext(c)
@@ -132,6 +177,7 @@ func (h *Handler) CreateComment(c *gin.Context) {
 		httpapi.Error(c, http.StatusInternalServerError, "internal_error", "internal server error")
 		return
 	}
+	h.invalidateNote(c.Request.Context(), noteID)
 	c.JSON(http.StatusCreated, httpapi.Response{
 		Data:      CommentDTO{ID: comment.ID, NoteID: comment.NoteID, AuthorID: comment.AuthorID, Body: comment.Body, CreatedAt: comment.CreatedAt},
 		Error:     nil,

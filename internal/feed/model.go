@@ -1,6 +1,7 @@
 package feed
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -58,12 +59,23 @@ type FeedItem struct {
 	ImageURLs      []string   `json:"image_urls"`
 	PublishedAt    *time.Time `json:"published_at"`
 	CreatedAt      time.Time  `json:"created_at"`
+	// Viewer flags: nil for anonymous, true/false for logged-in users.
+	ViewerLiked     *bool `json:"viewer_liked,omitempty"`
+	ViewerFavorited *bool `json:"viewer_favorited,omitempty"`
+	ViewerFollowing *bool `json:"viewer_following,omitempty"`
 }
 
 type FeedResult struct {
 	Items      []FeedItem `json:"items"`
 	NextCursor string     `json:"next_cursor"`
 	HasMore    bool       `json:"has_more"`
+}
+
+// ViewerStateProvider checks the viewer's relationship to feed items.
+type ViewerStateProvider interface {
+	HasLiked(ctx context.Context, userID, noteID uint64) (bool, error)
+	HasFavorited(ctx context.Context, userID, noteID uint64) (bool, error)
+	IsFollowing(ctx context.Context, followerID, followeeID uint64) (bool, error)
 }
 
 func parseLimit(limit int) int {

@@ -16,14 +16,15 @@ const (
 )
 
 type Config struct {
-	App    AppConfig    `yaml:"app"`
-	HTTP   HTTPConfig   `yaml:"http"`
-	Log    LogConfig    `yaml:"log"`
-	MySQL  MySQLConfig  `yaml:"mysql"`
-	Auth   AuthConfig   `yaml:"auth"`
-	Review ReviewConfig `yaml:"review"`
-	Upload UploadConfig `yaml:"upload"`
-	Redis  RedisConfig  `yaml:"redis"`
+	App      AppConfig      `yaml:"app"`
+	HTTP     HTTPConfig     `yaml:"http"`
+	Log      LogConfig      `yaml:"log"`
+	MySQL    MySQLConfig    `yaml:"mysql"`
+	Auth     AuthConfig     `yaml:"auth"`
+	Review   ReviewConfig   `yaml:"review"`
+	Upload   UploadConfig   `yaml:"upload"`
+	Redis    RedisConfig    `yaml:"redis"`
+	RabbitMQ RabbitMQConfig `yaml:"rabbitmq"`
 }
 
 type AppConfig struct {
@@ -69,6 +70,12 @@ type RedisConfig struct {
 	Addr     string `yaml:"addr"`
 	Password string `yaml:"password"`
 	DB       int    `yaml:"db"`
+}
+
+type RabbitMQConfig struct {
+	Enabled  bool   `yaml:"enabled"`
+	DSN      string `yaml:"dsn"`
+	Exchange string `yaml:"exchange"`
 }
 
 func Load(path string) (Config, error) {
@@ -161,5 +168,10 @@ func applyDefaults(cfg *Config) {
 	if cfg.Redis.Addr == "" {
 		cfg.Redis.Addr = "127.0.0.1:6379"
 	}
+	if cfg.RabbitMQ.DSN == "" {
+		cfg.RabbitMQ.DSN = "amqp://guest:guest@127.0.0.1:5672/"
+	}
+	if cfg.RabbitMQ.Exchange == "" {
+		cfg.RabbitMQ.Exchange = "ripple-note-events"
+	}
 }
-

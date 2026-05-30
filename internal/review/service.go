@@ -2,6 +2,7 @@ package review
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -16,13 +17,25 @@ var (
 	ErrAlreadyDecided  = errors.New("task already decided")
 )
 
+// CacheInvalidator invalidates caches after review decisions.
+type CacheInvalidator interface {
+	InvalidateFeedCache(ctx context.Context)
+	InvalidateNoteCache(ctx context.Context, noteID uint64)
+}
+
 type Service struct {
-	repo  *Repository
-	notes *note.Repository
+	repo   *Repository
+	notes  *note.Repository
+	cache  CacheInvalidator
 }
 
 func NewService(repo *Repository, notes *note.Repository) *Service {
 	return &Service{repo: repo, notes: notes}
+}
+
+// SetCacheInvalidator injects an optional cache invalidation callback.
+func (s *Service) SetCacheInvalidator(cache CacheInvalidator) {
+	s.cache = cache
 }
 
 func (s *Service) CreateInTx(ctx context.Context, tx *gorm.DB, noteID, authorID uint64, source string) (uint64, error) {
@@ -37,12 +50,13 @@ func (s *Service) CreateInTx(ctx context.Context, tx *gorm.DB, noteID, authorID 
 		return 0, err
 	}
 
+	payload, _ := json.Marshal(map[string]any{"note_id": noteID, "source": source})
 	event := &ReviewTaskEvent{
 		TaskID:      created.ID,
 		ActorType:   ActorTypeSystem,
 		ActorID:     "system",
 		EventType:   "task_created",
-		PayloadJSON: fmt.Sprintf(`{"note_id": %d, "source": "%s"}`, noteID, source),
+		PayloadJSON: string(payload),
 	}
 	if err := s.repo.CreateEvent(ctx, tx, event); err != nil {
 		return 0, err
@@ -132,17 +146,24 @@ func (s *Service) Decide(ctx context.Context, taskID uint64, input DecideInput) 
 			return err
 		}
 
+		payload, _ := json.Marshal(map[string]any{"decision": input.Decision, "reason": input.Reason})
 		event := &ReviewTaskEvent{
 			TaskID:      task.ID,
 			ActorType:   ActorTypeAdmin,
 			ActorID:     fmt.Sprintf("%d", input.AdminID),
 			EventType:   "admin_decided",
-			PayloadJSON: fmt.Sprintf(`{"decision": "%s", "reason": "%s"}`, input.Decision, input.Reason),
+			PayloadJSON: string(payload),
 		}
 		return s.repo.CreateEvent(ctx, tx, event)
 	})
 	if err != nil {
 		return TaskDTO{}, err
+	}
+
+	// Invalidate caches after successful transaction commit.
+	if s.cache != nil {
+		s.cache.InvalidateFeedCache(ctx)
+		s.cache.InvalidateNoteCache(ctx, task.NoteID)
 	}
 
 	return toTaskDTO(task), nil

@@ -190,7 +190,7 @@ func newNoteTestRouter(t *testing.T) (http.Handler, *gorm.DB) {
 
 	authorProvider := &testAuthorProvider{repo: userRepo}
 	noteRepo := note.NewRepository(db)
-	noteService := note.NewService(noteRepo, authorProvider, nil)
+	noteService := note.NewService(noteRepo, authorProvider, nil, nil)
 	optionalAuth := middleware.OptionalAuth(jwtManager)
 	noteHandler := note.NewHandler(noteService, optionalAuth)
 

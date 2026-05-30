@@ -503,20 +503,31 @@ Implement the Outbox pattern for reliable domain event publishing. Business writ
 - `next_retry_at` prevents immediate retry of failed events.
 - Worker starts with the server and stops gracefully on shutdown.
 
-### Summary
+### Backend Audit Fix (2026-05-30)
 
-All 9 backend stages are now complete. The project has:
+#### Audit Findings and Fixes
 
-1. ✅ Backend skeleton with health check (Stage 1)
-2. ✅ Account registration and JWT authentication (Stage 2)
-3. ✅ Content publishing and upload workflow (Stage 3)
-4. ✅ Review task state transitions (Stage 4)
-5. ✅ Internal content analysis APIs (Stage 5)
-6. ✅ Cursor-based feed endpoints (Stage 6)
-7. ✅ Content interactions and follow graph (Stage 7)
-8. ✅ Redis caching for feed and content reads (Stage 8)
-9. ✅ Outbox event publishing (Stage 9)
-10. ✅ React frontend for content community demo (Stage 10)
+A code audit identified 10 issues across the backend. All were fixed:
+
+**P1 fixes:**
+1. **RabbitMQ + Outbox**: Replaced NopPublisher with real RabbitMQPublisher (topic exchange). Added `cmd/worker/main.go` as independent worker process. Config now supports `rabbitmq.enabled`, `rabbitmq.dsn`, `rabbitmq.exchange`.
+2. **Outbox error handling**: Changed ignored outbox error to return error, causing the publish transaction to roll back if outbox write fails. This preserves "business + outbox same transaction" semantics.
+3. **Redis cache completion**: Added hot feed first-page caching, cache invalidation after review approve/reject (feed + note caches), cache invalidation after like/unlike/favorite/unfavorite/comment (note counts cache). Wired via CacheInvalidator interface injected into review service and interaction handler.
+4. **Feed visibility filter**: All 4 feed queries (latest, hot, following, tag) now filter `visibility = 'public'` in addition to `status = 'published'`.
+
+**P2 fixes:**
+5. **Feed viewer flags**: Added ViewerStateProvider interface. Feed items now include `viewer_liked`, `viewer_favorited`, `viewer_following` for logged-in users. Anonymous users see nil (omitted).
+6. **Agent review context**: Internal handler now uses AuthorInfoProvider to fetch real user profile (nickname, bio) and stats (notes_count, published_count, rejected_count, registered_days) instead of fake placeholder. Also fetches real tags.
+7. **Idempotent agent callback**: Same decision + trace_id repeated callback returns success (200 with current task state). Only conflicting decisions get 409.
+8. **JSON safety**: Replaced all fmt.Sprintf JSON building with json.Marshal in review service and internal handler. User input (reason, trace_id) with quotes/escapes no longer breaks JSON.
+9. **Transactional interaction writes**: Like, unlike, favorite, unfavorite, and comment creation now use `db.Transaction()` to wrap detail insert + counter update atomically.
+10. **Interaction note status check**: Like, favorite, and comment endpoints now verify `note status = published AND visibility = public` before allowing interaction.
+
+#### Verification
+
+- `go build ./...` compiles including new `cmd/worker`
+- `go test -count=1 ./...` all 9 test packages pass
+- Test updates only needed for constructor signature changes (NewService, NewInternalHandler)
 
 ## 2026-05-30 Stage 10: React Frontend
 

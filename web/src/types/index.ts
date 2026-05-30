@@ -60,6 +60,9 @@ export interface FeedItem {
   image_urls: string[];
   published_at?: string;
   created_at: string;
+  viewer_liked?: boolean | null;
+  viewer_favorited?: boolean | null;
+  viewer_following?: boolean | null;
 }
 
 export interface FeedResult {

@@ -77,18 +77,22 @@ func (s *Service) Publish(ctx context.Context, input PublishInput, authorID uint
 		if err := s.repo.CreateNoteImages(ctx, tx, images); err != nil {
 			return err
 		}
-			if s.reviewTaskCreator != nil {
-				taskID, err := s.reviewTaskCreator.CreateInTx(ctx, tx, note.ID, authorID, "publish")
-				if err != nil {
-					return err
-				}
-				if err := s.repo.UpdateReviewTaskID(ctx, tx, note.ID, taskID); err != nil {
-					return err
-				}
+
+		if s.reviewTaskCreator != nil {
+			taskID, err := s.reviewTaskCreator.CreateInTx(ctx, tx, note.ID, authorID, "publish")
+			if err != nil {
+				return err
 			}
-			if s.outbox != nil {
-				_ = s.outbox.CreateEvent(ctx, tx, "note.review_requested", "note", note.ID, map[string]any{"note_id": note.ID, "author_id": authorID})
+			if err := s.repo.UpdateReviewTaskID(ctx, tx, note.ID, taskID); err != nil {
+				return err
 			}
+		}
+
+		if s.outbox != nil {
+			if err := s.outbox.CreateEvent(ctx, tx, "note.review_requested", "note", note.ID, map[string]any{"note_id": note.ID, "author_id": authorID}); err != nil {
+				return fmt.Errorf("create outbox event: %w", err)
+			}
+		}
 
 		return nil
 	})

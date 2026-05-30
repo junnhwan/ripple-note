@@ -28,6 +28,8 @@ import (
 	"ripple-note/internal/upload"
 )
 
+// --- Adapter types for cross-module interfaces ---
+
 type userAuthorProvider struct {
 	repo *account.GormUserRepository
 }
@@ -38,6 +40,50 @@ func (p *userAuthorProvider) FindByID(ctx context.Context, id uint64) (note.Auth
 		return note.AuthorDTO{}, err
 	}
 	return note.AuthorDTO{ID: user.ID, Nickname: user.Nickname, AvatarURL: user.AvatarURL}, nil
+}
+
+// authorInfoAdapter implements review.AuthorInfoProvider using account and note repos.
+type authorInfoAdapter struct {
+	userRepo *account.GormUserRepository
+	noteRepo *note.Repository
+}
+
+func (a *authorInfoAdapter) FindAuthorInfo(ctx context.Context, userID uint64) (review.AuthorInfo, error) {
+	user, err := a.userRepo.FindByID(ctx, userID)
+	if err != nil {
+		return review.AuthorInfo{}, err
+	}
+
+	var notesCount, publishedCount, rejectedCount int64
+	a.noteRepo.DB().WithContext(ctx).Model(&note.Note{}).Where("author_id = ?", userID).Count(&notesCount)
+	a.noteRepo.DB().WithContext(ctx).Model(&note.Note{}).Where("author_id = ? AND status = ?", userID, note.StatusPublished).Count(&publishedCount)
+	a.noteRepo.DB().WithContext(ctx).Model(&note.Note{}).Where("author_id = ? AND status = ?", userID, note.StatusRejected).Count(&rejectedCount)
+
+	registeredDays := int(time.Since(user.CreatedAt).Hours() / 24)
+
+	return review.AuthorInfo{
+		ID:             user.ID,
+		Nickname:       user.Nickname,
+		AvatarURL:      user.AvatarURL,
+		Bio:            user.Bio,
+		NotesCount:     notesCount,
+		PublishedCount: publishedCount,
+		RejectedCount:  rejectedCount,
+		RegisteredDays: registeredDays,
+	}, nil
+}
+
+// cacheInvalidatorAdapter bridges cache.FeedCache to review.CacheInvalidator and interaction.CacheInvalidator.
+type cacheInvalidatorAdapter struct {
+	cache *cache.FeedCache
+}
+
+func (c *cacheInvalidatorAdapter) InvalidateFeedCache(ctx context.Context) {
+	c.cache.InvalidateFeedCache(ctx)
+}
+
+func (c *cacheInvalidatorAdapter) InvalidateNoteCache(ctx context.Context, noteID uint64) {
+	c.cache.InvalidateNoteCache(ctx, noteID)
 }
 
 func main() {
@@ -98,32 +144,41 @@ func main() {
 			os.Exit(1)
 		}
 
+		// --- Account ---
 		userRepo := account.NewGormUserRepository(db)
 		accountService := account.NewService(userRepo, auth.NewBcryptPasswordHasher(), jwtManager)
 		accountRoutes = account.NewHandler(accountService)
 
+		// --- Note + Upload ---
 		authorProvider := &userAuthorProvider{repo: userRepo}
 		noteRepo := note.NewRepository(db)
+		uploadRoutes = upload.NewHandler(cfg.Upload.ImageDir, cfg.Upload.MaxImageSize)
 
+		// --- Review ---
 		reviewRepo := review.NewRepository(db)
 		reviewService := review.NewService(reviewRepo, noteRepo)
 		reviewRoutes = review.NewHandler(reviewService)
-		internalRoutes = review.NewInternalHandler(reviewRepo, noteRepo)
 
+		// Internal handler with real author info provider.
+		authorInfo := &authorInfoAdapter{userRepo: userRepo, noteRepo: noteRepo}
+		internalRoutes = review.NewInternalHandler(reviewRepo, noteRepo, authorInfo)
+
+		// --- Outbox ---
 		outboxRepo := outbox.NewRepository(db)
 		outboxHelper := outbox.NewHelper(outboxRepo)
 		noteService := note.NewService(noteRepo, authorProvider, reviewService, outboxHelper)
 		optionalAuth := middleware.OptionalAuth(jwtManager)
 		noteRoutes = note.NewHandler(noteService, optionalAuth)
 
-		uploadRoutes = upload.NewHandler(cfg.Upload.ImageDir, cfg.Upload.MaxImageSize)
-
+		// --- Feed ---
 		feedRepo := feed.NewRepository(db)
 		interactionRepo := interaction.NewRepository(db)
 		followProvider := follow.NewProvider(interactionRepo)
-		feedService := feed.NewService(db, feedRepo, noteRepo, authorProvider, followProvider)
+		feedService := feed.NewService(db, feedRepo, noteRepo, authorProvider, followProvider, interactionRepo)
 
+		// --- Redis Cache ---
 		var feedHandler feed.FeedService = feedService
+		var cacheInvalidator *cacheInvalidatorAdapter
 		if cfg.Redis.Enabled {
 			redisClient, err := cache.NewClient(cfg.Redis.Addr, cfg.Redis.Password, cfg.Redis.DB)
 			if err != nil {
@@ -131,17 +186,42 @@ func main() {
 				os.Exit(1)
 			}
 			defer redisClient.Close()
-			feedHandler = cache.NewFeedCache(redisClient, feedService)
+			feedCache := cache.NewFeedCache(redisClient, feedService)
+			feedHandler = feedCache
+			cacheInvalidator = &cacheInvalidatorAdapter{cache: feedCache}
 			logger.Info("redis connected")
 		}
 
 		feedRoutes = feed.NewHandler(feedHandler, optionalAuth)
-		interactionRoutes = interaction.NewHandler(interactionRepo)
+		if cacheInvalidator != nil {
+			interactionRoutes = interaction.NewHandler(interactionRepo, cacheInvalidator)
+		} else {
+			interactionRoutes = interaction.NewHandler(interactionRepo)
+		}
 
-		// Start outbox worker with NopPublisher (RabbitMQ not yet available).
-		outboxWorker := outbox.NewWorker(outboxRepo, &outbox.NopPublisher{}, logger, 5*time.Second, 50)
+		// --- Outbox Worker (in-process for API server; use cmd/worker for production) ---
+		var publisher outbox.Publisher
+		if cfg.RabbitMQ.Enabled {
+			rmq, err := outbox.NewRabbitMQPublisher(cfg.RabbitMQ.DSN, cfg.RabbitMQ.Exchange, logger)
+			if err != nil {
+				logger.Error("connect rabbitmq failed", "error", err)
+				os.Exit(1)
+			}
+			defer rmq.Close()
+			publisher = rmq
+			logger.Info("rabbitmq connected")
+		} else {
+			publisher = &outbox.NopPublisher{}
+			logger.Warn("rabbitmq disabled; outbox using nop publisher")
+		}
+		outboxWorker := outbox.NewWorker(outboxRepo, publisher, logger, 5*time.Second, 50)
 		outboxWorker.Start()
 		defer outboxWorker.Stop()
+
+		// Wire cache invalidation into review service.
+		if cacheInvalidator != nil {
+			reviewService.SetCacheInvalidator(cacheInvalidator)
+		}
 
 		logger.Info("mysql connected")
 	} else {

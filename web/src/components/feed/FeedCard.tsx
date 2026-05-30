@@ -70,8 +70,8 @@ export default function FeedCard({ item }: FeedCardProps) {
             </div>
 
             <div className="flex items-center gap-3" onClick={(e) => e.stopPropagation()}>
-              <LikeButton noteId={item.id} initialCount={item.likes_count} />
-              <FavoriteButton noteId={item.id} initialCount={item.favorites_count} />
+              <LikeButton noteId={item.id} initialCount={item.likes_count} initialLiked={item.viewer_liked === true} />
+              <FavoriteButton noteId={item.id} initialCount={item.favorites_count} initialFavorited={item.viewer_favorited === true} />
               <span className="flex items-center gap-0.5 text-xs text-muted-foreground">
                 <MessageCircle className="h-3.5 w-3.5" />
                 {item.comments_count > 0 ? item.comments_count : ""}

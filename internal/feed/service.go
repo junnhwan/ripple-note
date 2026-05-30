@@ -20,18 +20,19 @@ type AuthorProvider interface {
 }
 
 type Service struct {
-	repo    *Repository
-	notes   *note.Repository
-	authors AuthorProvider
-	follows FollowProvider
-	db      *gorm.DB
+	repo     *Repository
+	notes    *note.Repository
+	authors  AuthorProvider
+	follows  FollowProvider
+	viewer   ViewerStateProvider
+	db       *gorm.DB
 }
 
-func NewService(db *gorm.DB, repo *Repository, notes *note.Repository, authors AuthorProvider, follows FollowProvider) *Service {
-	return &Service{db: db, repo: repo, notes: notes, authors: authors, follows: follows}
+func NewService(db *gorm.DB, repo *Repository, notes *note.Repository, authors AuthorProvider, follows FollowProvider, viewer ViewerStateProvider) *Service {
+	return &Service{db: db, repo: repo, notes: notes, authors: authors, follows: follows, viewer: viewer}
 }
 
-func (s *Service) Latest(ctx context.Context, encodedCursor string, limit int) (FeedResult, error) {
+func (s *Service) Latest(ctx context.Context, viewerID uint64, encodedCursor string, limit int) (FeedResult, error) {
 	limit = parseLimit(limit)
 	cursor, err := DecodeCursor(encodedCursor)
 	if err != nil {
@@ -43,12 +44,12 @@ func (s *Service) Latest(ctx context.Context, encodedCursor string, limit int) (
 		return FeedResult{}, err
 	}
 
-	return s.buildResult(ctx, notes, limit, func(n *note.Note) Cursor {
+	return s.buildResult(ctx, notes, limit, viewerID, func(n *note.Note) Cursor {
 		return Cursor{PublishedAt: n.PublishedAt, ID: n.ID}
 	})
 }
 
-func (s *Service) Hot(ctx context.Context, encodedCursor string, limit int) (FeedResult, error) {
+func (s *Service) Hot(ctx context.Context, viewerID uint64, encodedCursor string, limit int) (FeedResult, error) {
 	limit = parseLimit(limit)
 	cursor, err := DecodeCursor(encodedCursor)
 	if err != nil {
@@ -60,7 +61,7 @@ func (s *Service) Hot(ctx context.Context, encodedCursor string, limit int) (Fee
 		return FeedResult{}, err
 	}
 
-	return s.buildResult(ctx, notes, limit, func(n *note.Note) Cursor {
+	return s.buildResult(ctx, notes, limit, viewerID, func(n *note.Note) Cursor {
 		return Cursor{HotScore: &n.HotScore, ID: n.ID}
 	})
 }
@@ -82,12 +83,12 @@ func (s *Service) Following(ctx context.Context, userID uint64, encodedCursor st
 		return FeedResult{}, err
 	}
 
-	return s.buildResult(ctx, notes, limit, func(n *note.Note) Cursor {
+	return s.buildResult(ctx, notes, limit, userID, func(n *note.Note) Cursor {
 		return Cursor{PublishedAt: n.PublishedAt, ID: n.ID}
 	})
 }
 
-func (s *Service) ByTag(ctx context.Context, tagName, encodedCursor string, limit int) (FeedResult, error) {
+func (s *Service) ByTag(ctx context.Context, viewerID uint64, tagName, encodedCursor string, limit int) (FeedResult, error) {
 	limit = parseLimit(limit)
 	cursor, err := DecodeCursor(encodedCursor)
 	if err != nil {
@@ -107,12 +108,12 @@ func (s *Service) ByTag(ctx context.Context, tagName, encodedCursor string, limi
 		return FeedResult{}, err
 	}
 
-	return s.buildResult(ctx, notes, limit, func(n *note.Note) Cursor {
+	return s.buildResult(ctx, notes, limit, viewerID, func(n *note.Note) Cursor {
 		return Cursor{PublishedAt: n.PublishedAt, ID: n.ID}
 	})
 }
 
-func (s *Service) buildResult(ctx context.Context, notes []*note.Note, limit int, cursorFn func(*note.Note) Cursor) (FeedResult, error) {
+func (s *Service) buildResult(ctx context.Context, notes []*note.Note, limit int, viewerID uint64, cursorFn func(*note.Note) Cursor) (FeedResult, error) {
 	hasMore := len(notes) > limit
 	if hasMore {
 		notes = notes[:limit]
@@ -120,7 +121,7 @@ func (s *Service) buildResult(ctx context.Context, notes []*note.Note, limit int
 
 	items := make([]FeedItem, 0, len(notes))
 	for _, n := range notes {
-		item, err := s.toFeedItem(ctx, n)
+		item, err := s.toFeedItem(ctx, n, viewerID)
 		if err != nil {
 			return FeedResult{}, err
 		}
@@ -144,7 +145,7 @@ func (s *Service) buildResult(ctx context.Context, notes []*note.Note, limit int
 	}, nil
 }
 
-func (s *Service) toFeedItem(ctx context.Context, n *note.Note) (*FeedItem, error) {
+func (s *Service) toFeedItem(ctx context.Context, n *note.Note, viewerID uint64) (*FeedItem, error) {
 	author, err := s.authors.FindByID(ctx, n.AuthorID)
 	if err != nil {
 		return nil, err
@@ -158,7 +159,7 @@ func (s *Service) toFeedItem(ctx context.Context, n *note.Note) (*FeedItem, erro
 		imageURLs = append(imageURLs, img.URL)
 	}
 
-	return &FeedItem{
+	item := &FeedItem{
 		ID:             n.ID,
 		Title:          n.Title,
 		Body:           n.Body,
@@ -172,5 +173,17 @@ func (s *Service) toFeedItem(ctx context.Context, n *note.Note) (*FeedItem, erro
 		ImageURLs:      imageURLs,
 		PublishedAt:    n.PublishedAt,
 		CreatedAt:      n.CreatedAt,
-	}, nil
+	}
+
+	// Enrich with viewer state for logged-in users.
+	if viewerID > 0 && s.viewer != nil {
+		liked, _ := s.viewer.HasLiked(ctx, viewerID, n.ID)
+		favorited, _ := s.viewer.HasFavorited(ctx, viewerID, n.ID)
+		following, _ := s.viewer.IsFollowing(ctx, viewerID, n.AuthorID)
+		item.ViewerLiked = &liked
+		item.ViewerFavorited = &favorited
+		item.ViewerFollowing = &following
+	}
+
+	return item, nil
 }

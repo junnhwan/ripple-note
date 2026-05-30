@@ -199,26 +199,19 @@ func main() {
 			interactionRoutes = interaction.NewHandler(interactionRepo)
 		}
 
-		// --- Outbox Worker (in-process for API server; use cmd/worker for production) ---
-		var publisher outbox.Publisher
-		if cfg.RabbitMQ.Enabled {
-			rmq, err := outbox.NewRabbitMQPublisher(cfg.RabbitMQ.DSN, cfg.RabbitMQ.Exchange, logger)
-			if err != nil {
-				logger.Error("connect rabbitmq failed", "error", err)
-				os.Exit(1)
+			// --- Outbox: only connect to RabbitMQ for exchange declaration.
+			// Outbox worker runs in cmd/worker; API server does NOT consume outbox.
+			if cfg.RabbitMQ.Enabled {
+				rmq, err := outbox.NewRabbitMQPublisher(cfg.RabbitMQ.DSN, cfg.RabbitMQ.Exchange, logger)
+				if err != nil {
+					logger.Error("connect rabbitmq failed", "error", err)
+					os.Exit(1)
+				}
+				defer rmq.Close()
+				logger.Info("rabbitmq connected")
 			}
-			defer rmq.Close()
-			publisher = rmq
-			logger.Info("rabbitmq connected")
-		} else {
-			publisher = &outbox.NopPublisher{}
-			logger.Warn("rabbitmq disabled; outbox using nop publisher")
-		}
-		outboxWorker := outbox.NewWorker(outboxRepo, publisher, logger, 5*time.Second, 50)
-		outboxWorker.Start()
-		defer outboxWorker.Stop()
 
-		// Wire cache invalidation into review service.
+			// Wire cache invalidation into review service.
 		if cacheInvalidator != nil {
 			reviewService.SetCacheInvalidator(cacheInvalidator)
 		}

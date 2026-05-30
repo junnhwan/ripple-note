@@ -191,6 +191,14 @@ func (h *Handler) ListComments(c *gin.Context) {
 		httpapi.Error(c, http.StatusBadRequest, "invalid_note_id", "note id must be a positive integer")
 		return
 	}
+	if err := h.repo.NoteAvailable(c.Request.Context(), noteID); err != nil {
+		if errors.Is(err, ErrNoteNotAvailable) {
+			httpapi.Error(c, http.StatusNotFound, "note_not_found", "note not found or not available")
+			return
+		}
+		httpapi.Error(c, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
 	limit := parseQueryInt(c, "limit", 20)
 	offset := parseQueryInt(c, "offset", 0)
 

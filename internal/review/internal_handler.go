@@ -35,10 +35,15 @@ type InternalHandler struct {
 	reviewRepo    *Repository
 	noteRepo      *note.Repository
 	authorInfo    AuthorInfoProvider
+	cache         CacheInvalidator
 }
 
 func NewInternalHandler(reviewRepo *Repository, noteRepo *note.Repository, authorInfo AuthorInfoProvider) *InternalHandler {
 	return &InternalHandler{reviewRepo: reviewRepo, noteRepo: noteRepo, authorInfo: authorInfo}
+}
+
+func (h *InternalHandler) SetCacheInvalidator(cache CacheInvalidator) {
+	h.cache = cache
 }
 
 func (h *InternalHandler) RegisterRoutes(router gin.IRouter, internalAuth gin.HandlerFunc) {
@@ -240,6 +245,12 @@ func (h *InternalHandler) SubmitAgentResult(c *gin.Context) {
 	if err != nil {
 		h.writeError(c, err)
 		return
+	}
+
+	// Invalidate caches after successful agent decision.
+	if h.cache != nil {
+		h.cache.InvalidateFeedCache(c.Request.Context())
+		h.cache.InvalidateNoteCache(c.Request.Context(), task.NoteID)
 	}
 
 	httpapi.OK(c, toTaskDTO(task))

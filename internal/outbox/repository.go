@@ -20,11 +20,13 @@ func (r *Repository) CreateInTx(ctx context.Context, tx *gorm.DB, event *Event) 
 	return d.WithContext(ctx).Create(event).Error
 }
 
+// FindPending fetches events that are due for processing:
+// status = pending, or status = failed with next_retry_at reached.
 func (r *Repository) FindPending(ctx context.Context, limit int) ([]*Event, error) {
 	var events []*Event
 	now := time.Now()
 	err := r.db.WithContext(ctx).
-		Where("status = ? AND (next_retry_at IS NULL OR next_retry_at <= ?)", StatusPending, now).
+		Where("(status = ? OR (status = ? AND next_retry_at IS NOT NULL AND next_retry_at <= ?))", StatusPending, StatusFailed, now).
 		Order("id ASC").
 		Limit(limit).
 		Find(&events).Error
@@ -42,10 +44,10 @@ func (r *Repository) MarkSent(ctx context.Context, ids []uint64) error {
 func (r *Repository) MarkFailed(ctx context.Context, id uint64, retryCount int, nextRetryAt time.Time) error {
 	return r.db.WithContext(ctx).Model(&Event{}).Where("id = ?", id).
 		Updates(map[string]any{
-			"status":       StatusFailed,
-			"retry_count":  retryCount,
+			"status":        StatusFailed,
+			"retry_count":   retryCount,
 			"next_retry_at": nextRetryAt,
-			"updated_at":   time.Now(),
+			"updated_at":    time.Now(),
 		}).Error
 }
 

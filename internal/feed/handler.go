@@ -32,7 +32,7 @@ func (h *Handler) RegisterRoutes(router gin.IRouter, requireAuth gin.HandlerFunc
 	feed.GET("/latest", h.Latest)
 	feed.GET("/hot", h.Hot)
 	feed.GET("/following", requireAuth, h.Following)
-	router.GET("/tags/:tagName/feed", h.ByTag)
+	router.GET("/tags/:tagName/feed", h.optionalAuth, h.ByTag)
 }
 
 func (h *Handler) viewerID(c *gin.Context) uint64 {

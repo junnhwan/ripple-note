@@ -31,6 +31,11 @@ func main() {
 		os.Exit(1)
 	}
 
+	if !cfg.RabbitMQ.Enabled {
+		logger.Error("rabbitmq must be enabled for the outbox worker (run with -rabbitmq.enabled or do not run the worker)")
+		os.Exit(1)
+	}
+
 	db, err := storage.OpenMySQL(cfg.MySQL)
 	if err != nil {
 		logger.Error("connect mysql failed", "error", err)
@@ -45,23 +50,14 @@ func main() {
 
 	outboxRepo := outbox.NewRepository(db)
 
-	// Select publisher: RabbitMQ if enabled, otherwise NopPublisher.
-	var publisher outbox.Publisher
-	if cfg.RabbitMQ.Enabled {
-		rmq, err := outbox.NewRabbitMQPublisher(cfg.RabbitMQ.DSN, cfg.RabbitMQ.Exchange, logger)
-		if err != nil {
-			logger.Error("connect rabbitmq failed", "error", err)
-			os.Exit(1)
-		}
-		defer rmq.Close()
-		publisher = rmq
-		logger.Info("outbox worker using rabbitmq publisher")
-	} else {
-		publisher = &outbox.NopPublisher{}
-		logger.Warn("outbox worker using nop publisher (rabbitmq disabled)")
+	rmq, err := outbox.NewRabbitMQPublisher(cfg.RabbitMQ.DSN, cfg.RabbitMQ.Exchange, logger)
+	if err != nil {
+		logger.Error("connect rabbitmq failed", "error", err)
+		os.Exit(1)
 	}
+	defer rmq.Close()
 
-	worker := outbox.NewWorker(outboxRepo, publisher, logger, 5*time.Second, 50)
+	worker := outbox.NewWorker(outboxRepo, rmq, logger, 5*time.Second, 50)
 	worker.Start()
 
 	logger.Info("outbox worker started", "interval", "5s", "batch_size", 50)

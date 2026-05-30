@@ -1,6 +1,7 @@
 package feed
 
 import (
+	"context"
 	"net/http"
 	"strconv"
 
@@ -10,12 +11,19 @@ import (
 	"ripple-note/internal/middleware"
 )
 
+type FeedService interface {
+	Latest(ctx context.Context, cursor string, limit int) (FeedResult, error)
+	Hot(ctx context.Context, cursor string, limit int) (FeedResult, error)
+	Following(ctx context.Context, userID uint64, cursor string, limit int) (FeedResult, error)
+	ByTag(ctx context.Context, tagName, cursor string, limit int) (FeedResult, error)
+}
+
 type Handler struct {
-	service     *Service
+	service      FeedService
 	optionalAuth gin.HandlerFunc
 }
 
-func NewHandler(service *Service, optionalAuth gin.HandlerFunc) *Handler {
+func NewHandler(service FeedService, optionalAuth gin.HandlerFunc) *Handler {
 	return &Handler{service: service, optionalAuth: optionalAuth}
 }
 

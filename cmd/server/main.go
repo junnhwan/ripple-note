@@ -13,6 +13,7 @@ import (
 
 	"ripple-note/internal/account"
 	"ripple-note/internal/auth"
+	"ripple-note/internal/cache"
 	"ripple-note/internal/config"
 	"ripple-note/internal/feed"
 	"ripple-note/internal/follow"
@@ -117,7 +118,21 @@ func main() {
 		interactionRepo := interaction.NewRepository(db)
 		followProvider := follow.NewProvider(interactionRepo)
 		feedService := feed.NewService(db, feedRepo, noteRepo, authorProvider, followProvider)
-		feedRoutes = feed.NewHandler(feedService, optionalAuth)
+
+		// Optionally wrap with Redis cache.
+		var feedHandler feed.FeedService = feedService
+		if cfg.Redis.Enabled {
+			redisClient, err := cache.NewClient(cfg.Redis.Addr, cfg.Redis.Password, cfg.Redis.DB)
+			if err != nil {
+				logger.Error("connect redis failed", "error", err)
+				os.Exit(1)
+			}
+			defer redisClient.Close()
+			feedHandler = cache.NewFeedCache(redisClient, feedService)
+			logger.Info("redis connected")
+		}
+
+		feedRoutes = feed.NewHandler(feedHandler, optionalAuth)
 
 		interactionRoutes = interaction.NewHandler(interactionRepo)
 

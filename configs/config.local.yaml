@@ -28,3 +28,9 @@ review:
 upload:
   image_dir: "./uploads/images"
   max_image_size: 5242880
+
+redis:
+  enabled: true
+  addr: "127.0.0.1:6379"
+  password: ""
+  db: 0

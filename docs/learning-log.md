@@ -405,3 +405,56 @@ Stage 8 should add Redis caching:
 
 - Feed first-page cache, content detail cache, interaction count cache.
 - Active invalidation after content state changes.
+
+## 2026-05-30 Stage 8: Redis Cache
+
+### Stage Goal
+
+Add Redis caching for feed first-page and content reads, with TTL-based expiration and active invalidation helpers.
+
+### Files Created
+
+- `internal/cache/redis.go`: Redis client wrapper with Get/Set/Delete/Exists using JSON serialization.
+- `internal/cache/feed_cache.go`: `FeedCache` wrapper that caches latest feed first page; cache key helpers and invalidation methods.
+
+### Files Modified
+
+- `internal/config/config.go`: Added `RedisConfig` struct and default addr.
+- `internal/feed/handler.go`: Changed `Handler` to accept `FeedService` interface instead of concrete `*Service`.
+- `internal/feed/service.go`: `Service` already satisfies `FeedService` interface.
+- `internal/feed/handler_test.go`: Uses `Service` which satisfies `FeedService`.
+- `cmd/server/main.go`: Wired Redis client, wraps feed service with cache when enabled.
+- `configs/config.local.yaml`: Added `redis` section.
+
+### Go Backend Notes
+
+- **Interface-driven caching**: The `FeedService` interface allows transparently swapping between `Service` and `FeedCache` without changing the handler. This is the decorator pattern.
+- **Cache-aside pattern**: `FeedCache.Latest` first tries `client.Get`. On `ErrCacheMiss`, it falls through to the real service, then writes the result back to Redis with a TTL.
+- **TTL strategy**: Feed first page uses 30s TTL. Short TTL balances freshness with cache hit rate.
+- **Active invalidation**: `InvalidateFeedCache` and `InvalidateNoteCache` methods delete specific keys. These should be called when content status changes or interactions update counts.
+- **Graceful degradation**: If Redis is unavailable (`redis.enabled: false`), the system falls through to direct database queries with no behavior change.
+- **Cache keys**: Follow a namespaced convention: `feed:latest:first-page`, `note:detail:{id}`, `note:counts:{id}`, `user:profile:{id}`.
+
+### Java Spring Boot Comparison
+
+- Redis client wrapper ≈ Spring Data Redis `RedisTemplate<String, Object>`.
+- Cache-aside pattern ≈ Spring's `@Cacheable` with manual cache put on miss.
+- TTL strategy ≈ Spring Cache `@CacheConfig` with Redis TTL configuration.
+- Graceful degradation ≈ Spring's `@Cacheable` with fallback to `@Cacheable(sync=true)` or circuit breaker.
+
+### Verification
+
+- `go test -count=1 ./...` — all packages pass.
+- With `redis.enabled: true`, server logs "redis connected" on startup.
+- Latest feed first page is cached in Redis with 30s TTL.
+- Subsequent requests hit Redis cache (verified by observing reduced DB queries).
+- Feed cache wrapper falls through to DB on cache miss.
+- When `redis.enabled: false`, system works identically without cache.
+
+### Next Stage
+
+Stage 9 should add RabbitMQ and outbox for domain events:
+
+- Outbox events table.
+- Event publisher worker.
+- RabbitMQ producer and consumer.

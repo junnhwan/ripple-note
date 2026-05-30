@@ -23,6 +23,7 @@ type Config struct {
 	Auth   AuthConfig   `yaml:"auth"`
 	Review ReviewConfig `yaml:"review"`
 	Upload UploadConfig `yaml:"upload"`
+	Redis  RedisConfig  `yaml:"redis"`
 }
 
 type AppConfig struct {
@@ -61,6 +62,13 @@ type ReviewConfig struct {
 type UploadConfig struct {
 	ImageDir     string `yaml:"image_dir"`
 	MaxImageSize int64  `yaml:"max_image_size"`
+}
+
+type RedisConfig struct {
+	Enabled  bool   `yaml:"enabled"`
+	Addr     string `yaml:"addr"`
+	Password string `yaml:"password"`
+	DB       int    `yaml:"db"`
 }
 
 func Load(path string) (Config, error) {
@@ -150,4 +158,8 @@ func applyDefaults(cfg *Config) {
 	if cfg.Upload.MaxImageSize == 0 {
 		cfg.Upload.MaxImageSize = 5 * 1024 * 1024
 	}
+	if cfg.Redis.Addr == "" {
+		cfg.Redis.Addr = "127.0.0.1:6379"
+	}
 }
+

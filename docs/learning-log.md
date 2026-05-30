@@ -259,3 +259,47 @@ Stage 5 should expose internal content analysis APIs:
 - `X-Internal-Token` authentication middleware.
 - Pending task pull, review context, agent result callback.
 - Idempotent agent callbacks.
+
+## 2026-05-30 Stage 5: Internal APIs For 知涟洞察
+
+### Stage Goal
+
+Expose stable service-to-service APIs under `/internal` for the Agent project (知涟洞察) to pull pending review tasks, fetch review context, and submit agent results.
+
+### Files Created Or Modified
+
+- `internal/middleware/internal_auth.go`: `X-Internal-Token` authentication middleware.
+- `internal/review/internal_handler.go`: Internal handler with 4 endpoints.
+- `internal/http/router.go`: Added `InternalRoutes` interface and `InternalToken` field.
+- `cmd/server/main.go`: Wired internal handler with `cfg.Review.InternalToken`.
+- `internal/review/handler_test.go`: Added 3 internal API tests.
+
+### Go Backend Notes
+
+- **Service-to-service auth**: `X-Internal-Token` header is a simple shared secret. This is common in V1 internal APIs. Production systems often upgrade to mTLS or JWT-based service tokens.
+- **Internal handler interface**: `InternalRoutes` takes `internalAuth gin.HandlerFunc` instead of `requireAuth`, since internal APIs don't use JWT user tokens.
+- **Agent result callback**: The `SubmitAgentResult` endpoint handles three decisions: `pass` (auto-publish), `reject` (auto-reject), and `manual_review` (escalate to admin). Each updates both the review task and note status in a transaction.
+- **Idempotency**: The agent callback rejects already-decided tasks with `ErrAlreadyDecided`, preventing double-processing.
+- **Trace ID**: Agent results include a `trace_id` field stored in `agent_trace_id`, linking the platform review task to the agent's internal trace for debugging.
+
+### Java Spring Boot Comparison
+
+- `X-Internal-Token` middleware ≈ Spring Security filter chain with custom `X-Internal-Token` header check.
+- Internal vs public route separation ≈ Spring's `@RequestMapping` under different security configurations.
+- Agent callback idempotency ≈ Spring's `@Version` or explicit status checks in service layer.
+
+### Verification
+
+- `go test -count=1 ./...` — all packages pass including 7 review tests.
+- Internal APIs require `X-Internal-Token` header; missing token returns 401.
+- Agent `pass` → task status `agent_passed`, note status `published`.
+- Agent `reject` → task status `agent_rejected`, note status `rejected`.
+- Agent `manual_review` → task status `manual_required`, note stays `pending_review`.
+
+### Next Stage
+
+Stage 6 should add cursor-based feed endpoints:
+
+- Latest feed, hot feed, following feed, tag feed.
+- Compound cursor pagination.
+- Feed DTO hydration.

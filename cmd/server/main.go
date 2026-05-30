@@ -57,10 +57,11 @@ func main() {
 	})
 
 	var (
-		accountRoutes httpapi.AccountRoutes
-		noteRoutes    httpapi.AccountRoutes
-		uploadRoutes  httpapi.AccountRoutes
-		reviewRoutes  httpapi.AccountRoutes
+		accountRoutes  httpapi.AccountRoutes
+		noteRoutes     httpapi.AccountRoutes
+		uploadRoutes   httpapi.AccountRoutes
+		reviewRoutes   httpapi.AccountRoutes
+		internalRoutes httpapi.InternalRoutes
 	)
 
 	if cfg.MySQL.Enabled {
@@ -99,6 +100,7 @@ func main() {
 		reviewRepo := review.NewRepository(db)
 		reviewService := review.NewService(reviewRepo, noteRepo)
 		reviewRoutes = review.NewHandler(reviewService)
+			internalRoutes = review.NewInternalHandler(reviewRepo, noteRepo)
 
 		noteService := note.NewService(noteRepo, authorProvider, reviewService)
 		optionalAuth := middleware.OptionalAuth(jwtManager)
@@ -121,6 +123,8 @@ func main() {
 			ReviewRoutes:    reviewRoutes,
 			JWTManager:      jwtManager,
 			UploadStaticDir: cfg.Upload.ImageDir,
+				InternalRoutes:   internalRoutes,
+				InternalToken:    cfg.Review.InternalToken,
 		}),
 		ReadTimeout:  cfg.HTTP.ReadTimeout,
 		WriteTimeout: cfg.HTTP.WriteTimeout,

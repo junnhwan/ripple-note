@@ -202,6 +202,7 @@ func newReviewTestRouter(t *testing.T) (http.Handler, *gorm.DB) {
 	reviewRepo := review.NewRepository(db)
 	reviewService := review.NewService(reviewRepo, noteRepo)
 	reviewHandler := review.NewHandler(reviewService)
+		internalHandler := review.NewInternalHandler(reviewRepo, noteRepo)
 
 	authorProvider := &testAuthorProvider{repo: userRepo}
 	noteService := note.NewService(noteRepo, authorProvider, reviewService)
@@ -213,7 +214,9 @@ func newReviewTestRouter(t *testing.T) (http.Handler, *gorm.DB) {
 		AccountRoutes: accountHandler,
 		NoteRoutes:    noteHandler,
 		ReviewRoutes:  reviewHandler,
-		JWTManager:    jwtManager,
+		JWTManager:      jwtManager,
+			InternalRoutes: internalHandler,
+			InternalToken:  "local-dev-internal-token",
 	})
 
 	return router, db
@@ -340,4 +343,146 @@ func decodeData[T any](t *testing.T, data json.RawMessage) T {
 		t.Fatalf("decode %s: %v", string(data), err)
 	}
 	return value
+}
+
+
+func TestInternalAPIPullPendingAndGetContext(t *testing.T) {
+	t.Parallel()
+
+	router, _ := newReviewTestRouter(t)
+	registerAndLogin(t, router, "intauthor@example.com", "secret123", "IntAuthor")
+	authorToken := login(t, router, "intauthor@example.com", "secret123")
+
+	postJSON(t, router, "/api/notes", map[string]any{
+		"title": "Agent review me",
+		"body":  "Some content",
+	}, "Bearer "+authorToken)
+
+	pendingResp := getJSONWithHeader(t, router, "/internal/review/tasks/pending", "X-Internal-Token", "local-dev-internal-token")
+	if pendingResp.Status != http.StatusOK {
+		t.Fatalf("pending: expected 200, got %d: %s", pendingResp.Status, string(pendingResp.RawBody))
+	}
+
+	noTokenResp := getJSON(t, router, "/internal/review/tasks/pending", "")
+	if noTokenResp.Status != http.StatusUnauthorized {
+		t.Fatalf("expected 401 without token, got %d", noTokenResp.Status)
+	}
+}
+
+func TestInternalAPIAgentResultPass(t *testing.T) {
+	t.Parallel()
+
+	router, db := newReviewTestRouter(t)
+	registerAndLogin(t, router, "passauth@example.com", "secret123", "PassAuthor")
+	authorToken := login(t, router, "passauth@example.com", "secret123")
+
+	postJSON(t, router, "/api/notes", map[string]any{
+		"title": "Agent pass me",
+		"body":  "Good content",
+	}, "Bearer "+authorToken)
+
+	pendingResp := getJSONWithHeader(t, router, "/internal/review/tasks/pending", "X-Internal-Token", "local-dev-internal-token")
+	var pendingBody struct {
+		Data struct {
+			Items []struct {
+				ID uint64 `json:"id"`
+			} `json:"items"`
+		} `json:"data"`
+	}
+	_ = json.Unmarshal(pendingResp.RawBody, &pendingBody)
+	if len(pendingBody.Data.Items) == 0 {
+		t.Fatal("expected at least one pending task")
+	}
+	taskID := pendingBody.Data.Items[0].ID
+
+	resultResp := putJSONWithHeader(t, router, fmt.Sprintf("/internal/review/tasks/%d/agent-result", taskID), map[string]any{
+		"decision":   "pass",
+		"risk_level": "low",
+		"reason":     "Content is safe.",
+		"confidence": 0.95,
+		"trace_id":   "rg_trace_test_001",
+	}, "X-Internal-Token", "local-dev-internal-token")
+	if resultResp.Status != http.StatusOK {
+		t.Fatalf("agent result: expected 200, got %d: %s", resultResp.Status, string(resultResp.RawBody))
+	}
+
+	var resultBody struct {
+		Data struct {
+			Status string `json:"status"`
+		} `json:"data"`
+	}
+	_ = json.Unmarshal(resultResp.RawBody, &resultBody)
+	if resultBody.Data.Status != "agent_passed" {
+		t.Fatalf("expected agent_passed, got %s", resultBody.Data.Status)
+	}
+
+	var n note.Note
+	if err := db.Order("id DESC").First(&n).Error; err != nil {
+		t.Fatalf("find note: %v", err)
+	}
+	if n.Status != note.StatusPublished {
+		t.Fatalf("expected note published, got %s", n.Status)
+	}
+}
+
+func TestInternalAPIAgentResultReject(t *testing.T) {
+	t.Parallel()
+
+	router, db := newReviewTestRouter(t)
+	registerAndLogin(t, router, "rejauth@example.com", "secret123", "RejAuthor")
+	authorToken := login(t, router, "rejauth@example.com", "secret123")
+
+	postJSON(t, router, "/api/notes", map[string]any{
+		"title": "Agent reject me",
+		"body":  "Bad content",
+	}, "Bearer "+authorToken)
+
+	pendingResp := getJSONWithHeader(t, router, "/internal/review/tasks/pending", "X-Internal-Token", "local-dev-internal-token")
+	var pendingBody struct {
+		Data struct {
+			Items []struct {
+				ID uint64 `json:"id"`
+			} `json:"items"`
+		} `json:"data"`
+	}
+	_ = json.Unmarshal(pendingResp.RawBody, &pendingBody)
+	taskID := pendingBody.Data.Items[0].ID
+
+	resultResp := putJSONWithHeader(t, router, fmt.Sprintf("/internal/review/tasks/%d/agent-result", taskID), map[string]any{
+		"decision":   "reject",
+		"risk_level": "high",
+		"reason":     "Policy violation.",
+		"confidence": 0.89,
+		"trace_id":   "rg_trace_test_002",
+	}, "X-Internal-Token", "local-dev-internal-token")
+	if resultResp.Status != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resultResp.Status, string(resultResp.RawBody))
+	}
+
+	var n note.Note
+	if err := db.Order("id DESC").First(&n).Error; err != nil {
+		t.Fatalf("find note: %v", err)
+	}
+	if n.Status != note.StatusRejected {
+		t.Fatalf("expected note rejected, got %s", n.Status)
+	}
+}
+
+func getJSONWithHeader(t *testing.T, handler http.Handler, path, headerKey, headerValue string) apiTestResponse {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, path, nil)
+	req.Header.Set(headerKey, headerValue)
+	return doRequest(t, handler, req)
+}
+
+func putJSONWithHeader(t *testing.T, handler http.Handler, path string, payload any, headerKey, headerValue string) apiTestResponse {
+	t.Helper()
+	body, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodPut, path, bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set(headerKey, headerValue)
+	return doRequest(t, handler, req)
 }

@@ -15,13 +15,19 @@ type AccountRoutes interface {
 	RegisterRoutes(router gin.IRouter, requireAuth gin.HandlerFunc)
 }
 
+type InternalRoutes interface {
+	RegisterRoutes(router gin.IRouter, internalAuth gin.HandlerFunc)
+}
+
 type RouterOptions struct {
 	Logger           *slog.Logger
 	AccountRoutes    AccountRoutes
 	NoteRoutes       AccountRoutes
 	UploadRoutes     AccountRoutes
 	ReviewRoutes     AccountRoutes
+	InternalRoutes   InternalRoutes
 	JWTManager       *auth.JWTManager
+	InternalToken    string
 	UploadStaticDir  string
 }
 
@@ -46,20 +52,27 @@ func NewRouter(options RouterOptions) http.Handler {
 		OK(c, gin.H{"status": "ok"})
 	})
 
+	requireAuth := middleware.AuthRequired(options.JWTManager)
+
 	if options.AccountRoutes != nil {
-		options.AccountRoutes.RegisterRoutes(router.Group("/api"), middleware.AuthRequired(options.JWTManager))
+		options.AccountRoutes.RegisterRoutes(router.Group("/api"), requireAuth)
 	}
 
 	if options.UploadRoutes != nil {
-		options.UploadRoutes.RegisterRoutes(router.Group("/api"), middleware.AuthRequired(options.JWTManager))
+		options.UploadRoutes.RegisterRoutes(router.Group("/api"), requireAuth)
 	}
 
 	if options.NoteRoutes != nil {
-		options.NoteRoutes.RegisterRoutes(router.Group("/api"), middleware.AuthRequired(options.JWTManager))
+		options.NoteRoutes.RegisterRoutes(router.Group("/api"), requireAuth)
 	}
 
 	if options.ReviewRoutes != nil {
-		options.ReviewRoutes.RegisterRoutes(router.Group("/api"), middleware.AuthRequired(options.JWTManager))
+		options.ReviewRoutes.RegisterRoutes(router.Group("/api"), requireAuth)
+	}
+
+	if options.InternalRoutes != nil {
+		internalAuth := middleware.InternalAuth(options.InternalToken)
+		options.InternalRoutes.RegisterRoutes(router.Group(""), internalAuth)
 	}
 
 	if options.UploadStaticDir != "" {

@@ -22,6 +22,7 @@ type Config struct {
 	MySQL  MySQLConfig  `yaml:"mysql"`
 	Auth   AuthConfig   `yaml:"auth"`
 	Review ReviewConfig `yaml:"review"`
+	Upload UploadConfig `yaml:"upload"`
 }
 
 type AppConfig struct {
@@ -55,6 +56,11 @@ type AuthConfig struct {
 
 type ReviewConfig struct {
 	InternalToken string `yaml:"internal_token"`
+}
+
+type UploadConfig struct {
+	ImageDir     string `yaml:"image_dir"`
+	MaxImageSize int64  `yaml:"max_image_size"`
 }
 
 func Load(path string) (Config, error) {
@@ -137,5 +143,11 @@ func applyDefaults(cfg *Config) {
 	}
 	if cfg.Auth.JWTTTL == 0 {
 		cfg.Auth.JWTTTL = 24 * time.Hour
+	}
+	if cfg.Upload.ImageDir == "" {
+		cfg.Upload.ImageDir = "./uploads/images"
+	}
+	if cfg.Upload.MaxImageSize == 0 {
+		cfg.Upload.MaxImageSize = 5 * 1024 * 1024
 	}
 }

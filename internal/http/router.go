@@ -16,9 +16,12 @@ type AccountRoutes interface {
 }
 
 type RouterOptions struct {
-	Logger        *slog.Logger
-	AccountRoutes AccountRoutes
-	JWTManager    *auth.JWTManager
+	Logger           *slog.Logger
+	AccountRoutes    AccountRoutes
+	NoteRoutes       AccountRoutes
+	UploadRoutes     AccountRoutes
+	JWTManager       *auth.JWTManager
+	UploadStaticDir  string
 }
 
 func NewRouter(options RouterOptions) http.Handler {
@@ -44,6 +47,18 @@ func NewRouter(options RouterOptions) http.Handler {
 
 	if options.AccountRoutes != nil {
 		options.AccountRoutes.RegisterRoutes(router.Group("/api"), middleware.AuthRequired(options.JWTManager))
+	}
+
+	if options.UploadRoutes != nil {
+		options.UploadRoutes.RegisterRoutes(router.Group("/api"), middleware.AuthRequired(options.JWTManager))
+	}
+
+	if options.NoteRoutes != nil {
+		options.NoteRoutes.RegisterRoutes(router.Group("/api"), middleware.AuthRequired(options.JWTManager))
+	}
+
+	if options.UploadStaticDir != "" {
+		router.Static("/uploads/images", options.UploadStaticDir)
 	}
 
 	return router

@@ -146,3 +146,64 @@ Stage 3 should add content publishing and upload workflow:
 - Authenticated content publishing.
 - Content detail and own-content listing.
 - New content starts as `pending_review`.
+
+## 2026-05-30 Stage 3: Content Publishing And Uploads
+
+### Stage Goal
+
+让用户上传图片、发布笔记（进入 `pending_review` 状态）、查看笔记详情和自己的笔记列表。此阶段不实现审核流程、Feed 排序或交互功能。
+
+### Files Created Or Modified
+
+- `internal/note/model.go`: `notes`, `note_images`, `tags`, `note_tags` GORM models.
+- `internal/note/dto.go`: `NoteDTO`, `AuthorDTO`, `ImageDTO`, `PublishInput`, `NoteListDTO`.
+- `internal/note/repository.go`: note/image/tag CRUD, transaction helper via `d(db, tx)`.
+- `internal/note/service.go`: `Publish`, `Detail`, `MyNotes` business logic with transaction.
+- `internal/note/handler.go`: HTTP handlers for `/api/notes`, `/api/notes/:noteId`, `/api/users/me/notes`.
+- `internal/note/handler_test.go`: integration tests covering publish, detail, visibility, validation.
+- `internal/upload/handler.go`: multipart image upload to local disk.
+- `internal/middleware/auth.go`: added `OptionalAuth` for public endpoints that benefit from viewer context.
+- `internal/http/router.go`: added `NoteRoutes`, `UploadRoutes`, `UploadStaticDir` fields.
+- `internal/config/config.go`: added `UploadConfig` with defaults.
+- `cmd/server/main.go`: wired note/upload modules, `AuthorProvider` adapter, AutoMigrate all tables.
+- `configs/config.local.yaml`: added `upload` section.
+
+### Go Backend Notes
+
+- GORM transaction: `db.Transaction(func(tx *gorm.DB) error { ... })` wraps multi-table writes (note + tags + images) in a single transaction.
+- Repository helper `d(db, tx)` selects the transaction-scoped `*gorm.DB` when inside a transaction, or falls back to the default connection.
+- `OptionalAuth` middleware: tries to parse the Bearer token but does not reject the request if missing. The handler uses `AuthClaimsFromContext` to get the viewer ID if present.
+- New notes default to `status = pending_review`. Anonymous users get 404 for non-published notes. The author can see their own pending notes.
+- Tags are normalized (lowercase, trimmed) and deduplicated before storage. `FindOrCreateTag` uses the "query then insert" pattern inside a transaction.
+- Upload handler validates file extension, enforces max size, generates a timestamp-based filename, and saves to local disk. No database record is created for uploads — the file path is stored as a URL in `note_images` when publishing.
+- `AuthorProvider` interface in the note package avoids circular imports. `main.go` implements it with a thin adapter over the user repository.
+
+### Java Spring Boot Comparison
+
+- `db.Transaction(...)` is equivalent to Spring `@Transactional`.
+- `OptionalAuth` middleware is similar to Spring Security's `permitAll()` with optional principal extraction.
+- GORM callbacks inside `Transaction` are similar to JPA's automatic dirty checking within a transaction boundary.
+- File upload to local disk with `multipart/form-data` is conceptually identical to Spring's `MultipartFile` handling, but Go requires explicit file creation and copy.
+
+### Verification
+
+- `go test -count=1 ./...` — all packages pass.
+- Runtime acceptance with real MySQL:
+
+| Request | Status | Notes |
+|---------|--------|-------|
+| `POST /api/notes` with auth | 201 | Note created as `pending_review` |
+| `GET /api/notes/:id` as author | 200 | Author sees pending note |
+| `GET /api/notes/:id` anonymous | 404 | Pending note hidden from public |
+| `GET /api/users/me/notes` | 200 | Returns own notes list with total |
+| `POST /api/uploads/images` | 200 | Returns image URL |
+| `POST /api/notes` missing title | 400 | Validation error |
+| `POST /api/notes` invalid image URL | 400 | Validation error |
+
+### Next Stage
+
+Stage 4 should add review task state transitions:
+
+- `review_tasks` and `review_task_events` models.
+- Admin review APIs.
+- Content status transitions.

@@ -15,9 +15,28 @@ import (
 	"ripple-note/internal/auth"
 	"ripple-note/internal/config"
 	httpapi "ripple-note/internal/http"
+	"ripple-note/internal/middleware"
+	"ripple-note/internal/note"
 	"ripple-note/internal/observability"
 	"ripple-note/internal/storage"
+	"ripple-note/internal/upload"
 )
+
+type userAuthorProvider struct {
+	repo *account.GormUserRepository
+}
+
+func (p *userAuthorProvider) FindByID(ctx context.Context, id uint64) (note.AuthorDTO, error) {
+	user, err := p.repo.FindByID(ctx, id)
+	if err != nil {
+		return note.AuthorDTO{}, err
+	}
+	return note.AuthorDTO{
+		ID:        user.ID,
+		Nickname:  user.Nickname,
+		AvatarURL: user.AvatarURL,
+	}, nil
+}
 
 func main() {
 	configPath := flag.String("config", "configs/config.local.yaml", "path to YAML config file")
@@ -36,7 +55,11 @@ func main() {
 		TTL:    cfg.Auth.JWTTTL,
 	})
 
-	var accountRoutes httpapi.AccountRoutes
+	var (
+		accountRoutes httpapi.AccountRoutes
+		noteRoutes    httpapi.AccountRoutes
+		uploadRoutes  httpapi.AccountRoutes
+	)
 
 	if cfg.MySQL.Enabled {
 		db, err := storage.OpenMySQL(cfg.MySQL)
@@ -50,21 +73,45 @@ func main() {
 			os.Exit(1)
 		}
 		defer sqlDB.Close()
-		if err := db.AutoMigrate(&account.User{}); err != nil {
+
+		if err := db.AutoMigrate(
+			&account.User{},
+			&note.Note{},
+			&note.NoteImage{},
+			&note.Tag{},
+			&note.NoteTag{},
+		); err != nil {
 			logger.Error("auto migrate mysql failed", "error", err)
 			os.Exit(1)
 		}
+
 		userRepo := account.NewGormUserRepository(db)
 		accountService := account.NewService(userRepo, auth.NewBcryptPasswordHasher(), jwtManager)
 		accountRoutes = account.NewHandler(accountService)
+
+		authorProvider := &userAuthorProvider{repo: userRepo}
+		noteRepo := note.NewRepository(db)
+		noteService := note.NewService(noteRepo, authorProvider)
+		optionalAuth := middleware.OptionalAuth(jwtManager)
+		noteRoutes = note.NewHandler(noteService, optionalAuth)
+
+		uploadRoutes = upload.NewHandler(cfg.Upload.ImageDir, cfg.Upload.MaxImageSize)
+
 		logger.Info("mysql connected")
 	} else {
-		logger.Warn("mysql disabled; account endpoints are unavailable")
+		logger.Warn("mysql disabled; account and note endpoints are unavailable")
 	}
 
 	server := &http.Server{
 		Addr:         cfg.Addr(),
-		Handler:      httpapi.NewRouter(httpapi.RouterOptions{Logger: logger, AccountRoutes: accountRoutes, JWTManager: jwtManager}),
+		Handler: httpapi.NewRouter(httpapi.RouterOptions{
+			Logger:          logger,
+			AccountRoutes:   accountRoutes,
+			NoteRoutes:      noteRoutes,
+			UploadRoutes:    uploadRoutes,
+			JWTManager:      jwtManager,
+			UploadStaticDir: cfg.Upload.ImageDir,
+		}),
 		ReadTimeout:  cfg.HTTP.ReadTimeout,
 		WriteTimeout: cfg.HTTP.WriteTimeout,
 	}

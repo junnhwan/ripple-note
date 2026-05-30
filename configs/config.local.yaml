@@ -24,3 +24,7 @@ auth:
 
 review:
   internal_token: "local-dev-internal-token"
+
+upload:
+  image_dir: "./uploads/images"
+  max_image_size: 5242880

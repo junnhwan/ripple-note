@@ -50,6 +50,31 @@ func AuthClaimsFromContext(c *gin.Context) (auth.UserClaims, bool) {
 	return claims, ok
 }
 
+func OptionalAuth(tokens *auth.JWTManager) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		header := c.GetHeader("Authorization")
+		if header == "" {
+			c.Next()
+			return
+		}
+
+		scheme, token, ok := strings.Cut(header, " ")
+		if !ok || !strings.EqualFold(scheme, "Bearer") || strings.TrimSpace(token) == "" {
+			c.Next()
+			return
+		}
+
+		claims, err := tokens.Parse(strings.TrimSpace(token))
+		if err != nil {
+			c.Next()
+			return
+		}
+
+		c.Set(AuthClaimsKey, claims)
+		c.Next()
+	}
+}
+
 func writeUnauthorized(c *gin.Context, message string) {
 	c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
 		"data": nil,

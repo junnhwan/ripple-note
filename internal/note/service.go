@@ -19,14 +19,19 @@ type ReviewTaskCreator interface {
 	CreateInTx(ctx context.Context, tx *gorm.DB, noteID, authorID uint64, source string) (uint64, error)
 }
 
+type OutboxEventCreator interface {
+	CreateEvent(ctx context.Context, tx *gorm.DB, topic, aggregateType string, aggregateID uint64, payload any) error
+}
+
 type Service struct {
 	repo              *Repository
 	users             AuthorProvider
 	reviewTaskCreator ReviewTaskCreator
+	outbox            OutboxEventCreator
 }
 
-func NewService(repo *Repository, users AuthorProvider, reviewTaskCreator ReviewTaskCreator) *Service {
-	return &Service{repo: repo, users: users, reviewTaskCreator: reviewTaskCreator}
+func NewService(repo *Repository, users AuthorProvider, reviewTaskCreator ReviewTaskCreator, outbox OutboxEventCreator) *Service {
+	return &Service{repo: repo, users: users, reviewTaskCreator: reviewTaskCreator, outbox: outbox}
 }
 
 func (s *Service) Publish(ctx context.Context, input PublishInput, authorID uint64) (NoteDTO, error) {
@@ -80,6 +85,9 @@ func (s *Service) Publish(ctx context.Context, input PublishInput, authorID uint
 				if err := s.repo.UpdateReviewTaskID(ctx, tx, note.ID, taskID); err != nil {
 					return err
 				}
+			}
+			if s.outbox != nil {
+				_ = s.outbox.CreateEvent(ctx, tx, "note.review_requested", "note", note.ID, map[string]any{"note_id": note.ID, "author_id": authorID})
 			}
 
 		return nil

@@ -22,6 +22,7 @@ import (
 	"ripple-note/internal/middleware"
 	"ripple-note/internal/note"
 	"ripple-note/internal/observability"
+	"ripple-note/internal/outbox"
 	"ripple-note/internal/review"
 	"ripple-note/internal/storage"
 	"ripple-note/internal/upload"
@@ -91,6 +92,7 @@ func main() {
 			&interaction.NoteFavorite{},
 			&interaction.Comment{},
 			&interaction.Follow{},
+			&outbox.Event{},
 		); err != nil {
 			logger.Error("auto migrate mysql failed", "error", err)
 			os.Exit(1)
@@ -108,7 +110,9 @@ func main() {
 		reviewRoutes = review.NewHandler(reviewService)
 		internalRoutes = review.NewInternalHandler(reviewRepo, noteRepo)
 
-		noteService := note.NewService(noteRepo, authorProvider, reviewService)
+		outboxRepo := outbox.NewRepository(db)
+		outboxHelper := outbox.NewHelper(outboxRepo)
+		noteService := note.NewService(noteRepo, authorProvider, reviewService, outboxHelper)
 		optionalAuth := middleware.OptionalAuth(jwtManager)
 		noteRoutes = note.NewHandler(noteService, optionalAuth)
 
@@ -119,7 +123,6 @@ func main() {
 		followProvider := follow.NewProvider(interactionRepo)
 		feedService := feed.NewService(db, feedRepo, noteRepo, authorProvider, followProvider)
 
-		// Optionally wrap with Redis cache.
 		var feedHandler feed.FeedService = feedService
 		if cfg.Redis.Enabled {
 			redisClient, err := cache.NewClient(cfg.Redis.Addr, cfg.Redis.Password, cfg.Redis.DB)
@@ -133,8 +136,12 @@ func main() {
 		}
 
 		feedRoutes = feed.NewHandler(feedHandler, optionalAuth)
-
 		interactionRoutes = interaction.NewHandler(interactionRepo)
+
+		// Start outbox worker with NopPublisher (RabbitMQ not yet available).
+		outboxWorker := outbox.NewWorker(outboxRepo, &outbox.NopPublisher{}, logger, 5*time.Second, 50)
+		outboxWorker.Start()
+		defer outboxWorker.Stop()
 
 		logger.Info("mysql connected")
 	} else {

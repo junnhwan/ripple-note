@@ -458,3 +458,61 @@ Stage 9 should add RabbitMQ and outbox for domain events:
 - Outbox events table.
 - Event publisher worker.
 - RabbitMQ producer and consumer.
+
+## 2026-05-30 Stage 9: RabbitMQ And Outbox
+
+### Stage Goal
+
+Implement the Outbox pattern for reliable domain event publishing. Business writes (e.g., note publishing) create outbox events in the same database transaction. A background worker picks up pending events and publishes them to a message broker.
+
+### Files Created
+
+- `internal/outbox/model.go`: `outbox_events` GORM model with status constants and event topics.
+- `internal/outbox/repository.go`: CRUD for pending events, mark sent/failed with retry tracking.
+- `internal/outbox/publisher.go`: `Worker` background loop, `Publisher` interface, `NopPublisher` stub.
+- `internal/outbox/helper.go`: `Helper` that creates outbox events within a transaction.
+
+### Files Modified
+
+- `internal/note/service.go`: Added `OutboxEventCreator` interface, creates `note.review_requested` event in publish transaction.
+- `cmd/server/main.go`: Wired outbox repository, helper, and worker with `NopPublisher` (RabbitMQ not yet available).
+- Auto-migrate includes `outbox_events` table.
+
+### Go Backend Notes
+
+- **Outbox pattern**: Instead of publishing to a message broker directly during a business transaction, write an `outbox_events` row in the same transaction. A separate worker reads pending events and publishes them. This guarantees "at least once" delivery even if the broker is temporarily unavailable.
+- **Transaction boundary**: The outbox event is written using the same `*gorm.DB` transaction (`tx`) as the business write. If the business write fails, the outbox event is rolled back too — no orphaned events.
+- **Worker loop**: `Worker.run` uses a `time.Ticker` for periodic polling. It fetches pending events, attempts to publish each, marks successful ones as `sent`, and marks failed ones with an incremented retry count and a `next_retry_at` timestamp.
+- **`NopPublisher`**: A no-op implementation of `Publisher` that succeeds immediately. Used when RabbitMQ is not available. Can be replaced with a real `RabbitMQPublisher` when RabbitMQ is deployed.
+- **Graceful shutdown**: The worker uses a `stopCh` channel and `sync.WaitGroup` for clean shutdown. `defer outboxWorker.Stop()` in main ensures events are flushed before the process exits.
+- **Interface alignment**: `note.OutboxEventCreator` takes `any` for payload. `outbox.Helper.CreateEvent` also takes `any` and JSON-marshals it internally. This keeps the note module decoupled from outbox's internal `EventPayload` struct.
+
+### Java Spring Boot Comparison
+
+- Outbox pattern ≈ Spring's `@TransactionalEventListener(phase = AFTER_COMMIT)` with a polling publisher, or Debezium CDC connector.
+- Worker loop ≈ Spring's `@Scheduled` with `@Transactional` polling.
+- `NopPublisher` ≈ a `@Profile("dev")` no-op bean that gets replaced in production.
+- Same-transaction outbox write ≈ writing to both business table and outbox table in one `@Transactional` method.
+
+### Verification
+
+- `go test -count=1 ./...` — all packages pass.
+- Publishing a note creates an `outbox_events` row with `topic = "note.review_requested"` and `status = "pending"`.
+- The outbox worker polls for pending events and marks them as `sent` (with `NopPublisher`).
+- Failed publishes are marked with `status = "failed"` and `retry_count` incremented.
+- `next_retry_at` prevents immediate retry of failed events.
+- Worker starts with the server and stops gracefully on shutdown.
+
+### Summary
+
+All 9 backend stages are now complete. The project has:
+
+1. ✅ Backend skeleton with health check (Stage 1)
+2. ✅ Account registration and JWT authentication (Stage 2)
+3. ✅ Content publishing and upload workflow (Stage 3)
+4. ✅ Review task state transitions (Stage 4)
+5. ✅ Internal content analysis APIs (Stage 5)
+6. ✅ Cursor-based feed endpoints (Stage 6)
+7. ✅ Content interactions and follow graph (Stage 7)
+8. ✅ Redis caching for feed and content reads (Stage 8)
+9. ✅ Outbox event publishing (Stage 9)

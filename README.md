@@ -48,20 +48,7 @@
 - JWT（HS256）签发携带 `user_id` + `role`，支持 Bearer Token 鉴权。
 - 中间件分为 `AuthRequired`（强制鉴权）和 `OptionalAuth`（可选鉴权，Feed 首页需同时服务匿名和登录用户），登录用户的 Feed 额外注入 `viewer_liked` / `viewer_favorited` / `viewer_following` 状态。
 
-### API 规范 — 统一信封 + Request ID
-
-- 所有响应使用 `{ data, error, request_id }` 统一信封格式，error 包含 `code` + `message`。
-- 中间件为每个请求生成 UUID 作为 `request_id`，贯穿日志和响应，便于链路追踪。
-
-### 前端 — 瀑布流 + 交互反馈
-
-- CSS Columns 实现响应式瀑布流（2/3/4 列），配合 `IntersectionObserver` 无限滚动加载。
-- 卡片交错入场动画（`animation-delay` 60ms 递增 + 弹性缓动曲线）、shimmer 骨架屏替代简单 pulse、点赞/收藏弹性微交互（`cubic-bezier(0.34, 1.56, 0.64, 1)`）。
-- 导航栏和底部导航使用 `backdrop-filter` 毛玻璃效果，主题采用奶油金暖色系。
-
 ## 演示截图
-
-<!-- 请将截图放入 docs/screenshots/ 目录，替换下方文件名即可 -->
 
 | 首页 Feed 流 | 笔记详情 |
 |:---:|:---:|

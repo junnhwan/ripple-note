@@ -1,25 +1,25 @@
 @import "tailwindcss";
 
 @theme {
-  --color-primary: #06b6d4;
+  --color-primary: #c8956c;
   --color-primary-foreground: #ffffff;
-  --color-secondary: #f1f5f9;
-  --color-secondary-foreground: #0f172a;
-  --color-muted: #f1f5f9;
-  --color-muted-foreground: #64748b;
-  --color-accent: #f1f5f9;
-  --color-accent-foreground: #0f172a;
+  --color-secondary: #faf6f1;
+  --color-secondary-foreground: #3d2e1f;
+  --color-muted: #faf6f1;
+  --color-muted-foreground: #8c7a6b;
+  --color-accent: #faf6f1;
+  --color-accent-foreground: #3d2e1f;
   --color-destructive: #ef4444;
   --color-destructive-foreground: #ffffff;
-  --color-border: #e2e8f0;
-  --color-input: #e2e8f0;
-  --color-ring: #06b6d4;
-  --color-background: #fafafa;
-  --color-foreground: #0f172a;
+  --color-border: #e8ddd0;
+  --color-input: #e8ddd0;
+  --color-ring: #c8956c;
+  --color-background: #faf7f2;
+  --color-foreground: #3d2e1f;
   --color-card: #ffffff;
-  --color-card-foreground: #0f172a;
+  --color-card-foreground: #3d2e1f;
   --color-popover: #ffffff;
-  --color-popover-foreground: #0f172a;
+  --color-popover-foreground: #3d2e1f;
 
   --radius-lg: 0.75rem;
   --radius-md: 0.5rem;
@@ -30,6 +30,10 @@
   border-color: var(--color-border);
 }
 
+html {
+  scroll-behavior: smooth;
+}
+
 body {
   margin: 0;
   background-color: var(--color-background);
@@ -37,13 +41,16 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
     "Helvetica Neue", Arial, "Noto Sans", sans-serif;
   line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-/* Fade-in page transition */
+/* ========== Page Transitions ========== */
+
 @keyframes fadeIn {
   from {
     opacity: 0;
-    transform: translateY(8px);
+    transform: translateY(12px);
   }
   to {
     opacity: 1;
@@ -52,32 +59,84 @@ body {
 }
 
 .page-enter {
-  animation: fadeIn 0.3s ease-out;
+  animation: fadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-/* Like button heart pop animation */
+/* ========== Card Stagger Animation ========== */
+
+@keyframes cardEnter {
+  from {
+    opacity: 0;
+    transform: translateY(20px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.masonry-item {
+  animation: cardEnter 0.5s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+  break-inside: avoid;
+  margin-bottom: 1rem;
+}
+
+.masonry-item:nth-child(1) { animation-delay: 0ms; }
+.masonry-item:nth-child(2) { animation-delay: 60ms; }
+.masonry-item:nth-child(3) { animation-delay: 120ms; }
+.masonry-item:nth-child(4) { animation-delay: 180ms; }
+.masonry-item:nth-child(5) { animation-delay: 240ms; }
+.masonry-item:nth-child(6) { animation-delay: 300ms; }
+.masonry-item:nth-child(7) { animation-delay: 360ms; }
+.masonry-item:nth-child(8) { animation-delay: 420ms; }
+.masonry-item:nth-child(9) { animation-delay: 480ms; }
+.masonry-item:nth-child(10) { animation-delay: 540ms; }
+.masonry-item:nth-child(n+11) { animation-delay: 600ms; }
+
+/* ========== Like / Favorite Animations ========== */
+
 @keyframes heartPop {
   0% { transform: scale(1); }
-  50% { transform: scale(1.3); }
+  30% { transform: scale(1.4); }
+  60% { transform: scale(0.9); }
   100% { transform: scale(1); }
 }
 
 .heart-pop {
-  animation: heartPop 0.3s ease-out;
+  animation: heartPop 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
-/* Favorite star flash animation */
 @keyframes starFlash {
-  0% { transform: scale(1); filter: brightness(1); }
-  50% { transform: scale(1.25); filter: brightness(1.4); }
-  100% { transform: scale(1); filter: brightness(1); }
+  0% { transform: scale(1) rotate(0deg); filter: brightness(1); }
+  40% { transform: scale(1.3) rotate(15deg); filter: brightness(1.5); }
+  70% { transform: scale(0.95) rotate(-5deg); filter: brightness(1.1); }
+  100% { transform: scale(1) rotate(0deg); filter: brightness(1); }
 }
 
 .star-flash {
-  animation: starFlash 0.35s ease-out;
+  animation: starFlash 0.45s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
-/* Masonry grid for feed */
+/* ========== Shimmer Skeleton ========== */
+
+@keyframes shimmer {
+  0% { background-position: -400px 0; }
+  100% { background-position: 400px 0; }
+}
+
+.skeleton-shimmer {
+  background: linear-gradient(
+    90deg,
+    #e8ddd0 25%,
+    #faf6f1 37%,
+    #e8ddd0 63%
+  );
+  background-size: 800px 100%;
+  animation: shimmer 1.6s ease-in-out infinite;
+}
+
+/* ========== Masonry Grid ========== */
+
 .masonry-grid {
   column-count: 2;
   column-gap: 1rem;
@@ -91,38 +150,110 @@ body {
   .masonry-grid { column-count: 4; }
 }
 
-.masonry-item {
-  break-inside: avoid;
-  margin-bottom: 1rem;
-}
+/* ========== Tag Chip ========== */
 
-/* Skeleton pulse */
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.4; }
-}
-
-.skeleton-pulse {
-  animation: pulse 1.5s ease-in-out infinite;
-}
-
-/* Tag chip style */
 .tag-chip {
   display: inline-flex;
   align-items: center;
   padding: 2px 10px;
   border-radius: 9999px;
   font-size: 12px;
-  background-color: #ecfeff;
-  color: #0891b2;
-  border: 1px solid #a5f3fc;
+  background: linear-gradient(135deg, #fdf4e8, #f8edd8);
+  color: #a0764a;
+  border: 1px solid rgba(200, 149, 108, 0.2);
   white-space: nowrap;
+  transition: all 0.2s ease;
 }
 
-/* Line-clamp utility */
+.tag-chip:hover {
+  background: linear-gradient(135deg, #fcecd4, #f5e2c3);
+  border-color: rgba(200, 149, 108, 0.4);
+  box-shadow: 0 2px 8px rgba(200, 149, 108, 0.15);
+}
+
+/* ========== Utility ========== */
+
 .line-clamp-2 {
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+
+/* ========== Button Press Effect ========== */
+
+.btn-press {
+  transition: transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.2s ease;
+}
+.btn-press:active {
+  transform: scale(0.96);
+}
+
+/* ========== Auth Page Decorative Background ========== */
+
+.auth-bg {
+  position: relative;
+  overflow: hidden;
+}
+
+.auth-bg::before {
+  content: "";
+  position: absolute;
+  top: -40%;
+  right: -20%;
+  width: 500px;
+  height: 500px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(200, 149, 108, 0.12) 0%, transparent 70%);
+  pointer-events: none;
+}
+
+.auth-bg::after {
+  content: "";
+  position: absolute;
+  bottom: -30%;
+  left: -15%;
+  width: 400px;
+  height: 400px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(212, 165, 116, 0.08) 0%, transparent 70%);
+  pointer-events: none;
+}
+
+/* ========== Navbar Glass ========== */
+
+.navbar-glass {
+  background: rgba(255, 255, 255, 0.72);
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.02);
+}
+
+/* ========== Tab Indicator ========== */
+
+.tab-transition {
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* ========== Mobile Nav Glass ========== */
+
+.mobile-nav-glass {
+  background: rgba(255, 255, 255, 0.78);
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  border-top: 1px solid rgba(232, 221, 208, 0.6);
+}
+
+/* ========== Focus Ring ========== */
+
+.focus-ring:focus-visible {
+  outline: 2px solid var(--color-ring);
+  outline-offset: 2px;
+}
+
+/* ========== Toast polish (sonner override) ========== */
+
+[data-sonner-toaster] [data-styled="true"] {
+  border-radius: 12px !important;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.08) !important;
 }

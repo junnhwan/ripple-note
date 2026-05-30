@@ -5,9 +5,8 @@ import { getMyNotes } from "@/api/notes";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
 import EmptyState from "@/components/common/EmptyState";
-import { PenSquare, FileText, Clock, XCircle, CheckCircle } from "lucide-react";
+import { PenSquare, FileText, Clock, XCircle, CheckCircle, Sparkles } from "lucide-react";
 import type { Note } from "@/types";
 
 export default function ProfilePage() {
@@ -31,32 +30,39 @@ export default function ProfilePage() {
   return (
     <div className="page-enter mx-auto max-w-3xl">
       {/* Profile header */}
-      <div className="flex items-center gap-4 rounded-2xl border bg-white p-6">
-        <Avatar className="h-16 w-16">
-          {user.avatar_url ? (
-            <AvatarImage src={user.avatar_url} alt={user.nickname} />
-          ) : (
-            <AvatarFallback className="text-xl">{user.nickname?.charAt(0) || "U"}</AvatarFallback>
-          )}
-        </Avatar>
-        <div className="flex-1">
-          <h2 className="text-lg font-bold">{user.nickname}</h2>
-          <p className="text-sm text-muted-foreground">{user.email}</p>
-          <div className="mt-1 flex items-center gap-2">
-            {user.role === "admin" && (
-              <Badge variant="secondary">管理员</Badge>
+      <div className="relative overflow-hidden rounded-2xl border border-gray-100 bg-white p-6 shadow-sm">
+        {/* Decorative gradient */}
+        <div className="absolute -top-10 -right-10 h-32 w-32 rounded-full bg-gradient-to-br from-amber-100/60 to-orange-100/40" />
+
+        <div className="relative flex items-center gap-4">
+          <Avatar className="h-16 w-16 ring-4 ring-amber-50 shadow-md">
+            {user.avatar_url ? (
+              <AvatarImage src={user.avatar_url} alt={user.nickname} />
+            ) : (
+              <AvatarFallback className="bg-gradient-to-br from-amber-100 to-orange-100 text-xl text-amber-700">
+                {user.nickname?.charAt(0) || "U"}
+              </AvatarFallback>
             )}
-            <span className="text-xs text-muted-foreground">
-              加入于 {new Date(user.created_at).toLocaleDateString("zh-CN")}
-            </span>
+          </Avatar>
+          <div className="flex-1">
+            <h2 className="text-lg font-bold">{user.nickname}</h2>
+            <p className="text-sm text-muted-foreground">{user.email}</p>
+            <div className="mt-1 flex items-center gap-2">
+              {user.role === "admin" && (
+                <Badge variant="secondary" className="bg-amber-50 text-amber-700">管理员</Badge>
+              )}
+              <span className="text-xs text-muted-foreground">
+                加入于 {new Date(user.created_at).toLocaleDateString("zh-CN")}
+              </span>
+            </div>
           </div>
+          <Link to="/publish">
+            <Button size="sm" className="btn-press gap-1.5 rounded-lg bg-gradient-to-r from-amber-500 to-orange-400 shadow-md shadow-amber-200/50">
+              <Sparkles className="h-4 w-4" />
+              发布笔记
+            </Button>
+          </Link>
         </div>
-        <Link to="/publish">
-          <Button size="sm" className="gap-1.5">
-            <PenSquare className="h-4 w-4" />
-            发布笔记
-          </Button>
-        </Link>
       </div>
 
       {/* Notes list */}
@@ -65,7 +71,7 @@ export default function ProfilePage() {
       {isLoading && (
         <div className="space-y-3">
           {Array.from({ length: 3 }).map((_, i) => (
-            <Skeleton key={i} className="h-20 w-full rounded-xl" />
+            <div key={i} className="skeleton-shimmer h-20 w-full rounded-xl" />
           ))}
         </div>
       )}
@@ -94,13 +100,13 @@ function NoteRow({ note }: { note: Note }) {
 
   return (
     <Link to={`/notes/${note.id}`} className="no-underline">
-      <div className="flex items-start gap-3 rounded-xl border bg-white p-4 transition-colors hover:bg-muted/50">
+      <div className="flex items-start gap-3 rounded-xl border border-gray-100 bg-white p-4 shadow-sm transition-all duration-200 hover:border-amber-200/60 hover:shadow-md hover:-translate-y-0.5">
         {note.images?.[0] && (
           <img
             src={note.images[0].url}
             alt=""
             loading="lazy"
-            className="h-16 w-16 shrink-0 rounded-lg object-cover"
+            className="h-16 w-16 shrink-0 rounded-lg object-cover shadow-sm"
           />
         )}
         <div className="flex-1 min-w-0">

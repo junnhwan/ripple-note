@@ -8,10 +8,16 @@ import ErrorState from "@/components/common/ErrorState";
 import BackToTop from "@/components/layout/BackToTop";
 import { useInfiniteScroll } from "@/hooks/useInfiniteScroll";
 import { useAuth } from "@/context/AuthContext";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Clock, Flame, Users } from "lucide-react";
+import { cn } from "@/lib/utils";
 import type { FeedItem } from "@/types";
 
 type FeedTab = "latest" | "hot" | "following";
+
+const TABS = [
+  { key: "latest" as FeedTab, label: "最新", icon: Clock },
+  { key: "hot" as FeedTab, label: "热门", icon: Flame },
+];
 
 const FETCHERS: Record<string, (cursor: string, limit: number) => Promise<{ items: FeedItem[]; next_cursor: string; has_more: boolean }>> = {
   latest: getLatestFeed,
@@ -30,8 +36,11 @@ export default function FeedPage() {
   const { user } = useAuth();
   const [tab, setTab] = useState<FeedTab>(getInitialTab);
 
-  const handleTabChange = useCallback((v: string) => {
-    const newTab = v as FeedTab;
+  const allTabs = user
+    ? [...TABS, { key: "following" as FeedTab, label: "关注", icon: Users }]
+    : TABS;
+
+  const handleTabChange = useCallback((newTab: FeedTab) => {
     setTab(newTab);
     const url = new URL(window.location.href);
     url.searchParams.set("tab", newTab);
@@ -40,25 +49,29 @@ export default function FeedPage() {
 
   return (
     <div className="page-enter">
-      <Tabs value={tab} onValueChange={handleTabChange}>
-        <TabsList className="mb-4">
-          <TabsTrigger value="latest">最新</TabsTrigger>
-          <TabsTrigger value="hot">热门</TabsTrigger>
-          {user && <TabsTrigger value="following">关注</TabsTrigger>}
-        </TabsList>
+      {/* Custom tab bar */}
+      <div className="mb-5 flex items-center gap-1 rounded-xl bg-amber-50/80 p-1">
+        {allTabs.map(({ key, label, icon: Icon }) => (
+          <button
+            key={key}
+            onClick={() => handleTabChange(key)}
+            className={cn(
+              "flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium transition-all duration-300",
+              tab === key
+                ? "bg-white text-amber-800 shadow-sm"
+                : "text-muted-foreground hover:text-foreground hover:bg-white/50"
+            )}
+          >
+            <Icon className={cn("h-4 w-4 transition-transform duration-200", tab === key && "scale-110")} />
+            {label}
+          </button>
+        ))}
+      </div>
 
-        <TabsContent value="latest">
-          <FeedList tab="latest" />
-        </TabsContent>
-        <TabsContent value="hot">
-          <FeedList tab="hot" />
-        </TabsContent>
-        {user && (
-          <TabsContent value="following">
-            <FeedList tab="following" />
-          </TabsContent>
-        )}
-      </Tabs>
+      {/* Tab content with crossfade */}
+      <div className="tab-transition">
+        <FeedList tab={tab} />
+      </div>
       <BackToTop />
     </div>
   );

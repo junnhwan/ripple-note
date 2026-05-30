@@ -15,7 +15,7 @@ export default function FeedCard({ item }: FeedCardProps) {
 
   return (
     <Link to={`/notes/${item.id}`} className="no-underline">
-      <div className="group masonry-item cursor-pointer overflow-hidden rounded-2xl border bg-white shadow-sm transition-all hover:shadow-md hover:-translate-y-0.5">
+      <div className="group masonry-item cursor-pointer overflow-hidden rounded-2xl border border-gray-100 bg-white transition-all duration-300 ease-out hover:border-amber-200/60 hover:shadow-xl hover:shadow-amber-500/5 hover:-translate-y-1">
         {/* Cover image */}
         {coverImage ? (
           <div className="relative aspect-[4/3] overflow-hidden bg-muted">
@@ -23,27 +23,29 @@ export default function FeedCard({ item }: FeedCardProps) {
               src={coverImage}
               alt={item.title}
               loading="lazy"
-              className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+              className="h-full w-full object-cover transition-transform duration-500 ease-out group-hover:scale-110"
             />
+            {/* Gradient overlay on hover */}
+            <div className="absolute inset-0 bg-gradient-to-t from-black/20 via-transparent to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
           </div>
         ) : (
-          <div className="flex aspect-[4/3] items-center justify-center bg-gradient-to-br from-cyan-50 to-cyan-100">
-            <span className="text-3xl opacity-40">📝</span>
+          <div className="flex aspect-[4/3] items-center justify-center bg-gradient-to-br from-amber-50 via-orange-50 to-yellow-50">
+            <span className="text-3xl opacity-30 transition-transform duration-300 group-hover:scale-110">📝</span>
           </div>
         )}
 
         {/* Content */}
-        <div className="p-3">
-          <h3 className="line-clamp-2 text-sm font-medium leading-snug text-foreground">
+        <div className="p-3.5">
+          <h3 className="line-clamp-2 text-sm font-semibold leading-snug text-foreground transition-colors duration-200 group-hover:text-amber-800">
             {item.title}
           </h3>
           {excerpt && (
-            <p className="mt-1 text-xs text-muted-foreground line-clamp-2">{excerpt}</p>
+            <p className="mt-1.5 text-xs text-muted-foreground line-clamp-2">{excerpt}</p>
           )}
 
           {/* Tags */}
           {item.tags?.length > 0 && (
-            <div className="mt-2 flex flex-wrap gap-1">
+            <div className="mt-2.5 flex flex-wrap gap-1">
               {item.tags.slice(0, 3).map((tag) => (
                 <span key={tag} className="tag-chip">
                   #{tag}
@@ -53,13 +55,13 @@ export default function FeedCard({ item }: FeedCardProps) {
           )}
 
           {/* Footer */}
-          <div className="mt-2 flex items-center justify-between">
+          <div className="mt-3 flex items-center justify-between border-t border-amber-50 pt-2.5">
             <div className="flex items-center gap-1.5">
-              <Avatar className="h-5 w-5">
+              <Avatar className="h-5 w-5 ring-1 ring-amber-100">
                 {item.author_avatar ? (
                   <AvatarImage src={item.author_avatar} alt={item.author_nickname} />
                 ) : (
-                  <AvatarFallback className="text-[10px]">
+                  <AvatarFallback className="bg-gradient-to-br from-amber-100 to-orange-100 text-[10px] text-amber-700">
                     {item.author_nickname?.charAt(0) || "U"}
                   </AvatarFallback>
                 )}

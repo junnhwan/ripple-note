@@ -108,10 +108,12 @@ export default function PublishPage() {
 
   return (
     <div className="page-enter mx-auto max-w-2xl">
-      <Card>
+      <Card className="border-gray-100 shadow-lg shadow-amber-500/5">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <Send className="h-5 w-5" />
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-amber-500 to-orange-400 shadow-md shadow-amber-200/40">
+              <Send className="h-4 w-4 text-white" />
+            </div>
             发布笔记
           </CardTitle>
         </CardHeader>
@@ -129,7 +131,7 @@ export default function PublishPage() {
               <div
                 onDrop={handleDrop}
                 onDragOver={handleDragOver}
-                className="flex min-h-[120px] cursor-pointer flex-wrap items-center justify-center gap-3 rounded-xl border-2 border-dashed border-muted p-4 transition-colors hover:border-primary/50"
+                className="flex min-h-[120px] cursor-pointer flex-wrap items-center justify-center gap-3 rounded-xl border-2 border-dashed border-gray-200 bg-amber-50/30 p-4 transition-all duration-300 hover:border-amber-300 hover:bg-amber-50/50"
                 onClick={() => {
                   const input = document.createElement("input");
                   input.type = "file";
@@ -145,7 +147,7 @@ export default function PublishPage() {
                 {imageUrls.length > 0 ? (
                   <>
                     {imageUrls.map((url) => (
-                      <div key={url} className="group relative h-24 w-24 overflow-hidden rounded-lg">
+                      <div key={url} className="group relative h-24 w-24 overflow-hidden rounded-xl shadow-sm">
                         <img src={url} alt="" className="h-full w-full object-cover" />
                         <button
                           type="button"
@@ -153,22 +155,22 @@ export default function PublishPage() {
                             e.stopPropagation();
                             removeImage(url);
                           }}
-                          className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-black/50 text-white opacity-0 transition-opacity group-hover:opacity-100"
+                          className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-black/50 text-white opacity-0 transition-all duration-200 group-hover:opacity-100 hover:bg-red-500"
                         >
                           <X className="h-3 w-3" />
                         </button>
                       </div>
                     ))}
-                    <div className="flex h-24 w-24 items-center justify-center rounded-lg border-2 border-dashed border-muted">
+                    <div className="flex h-24 w-24 items-center justify-center rounded-xl border-2 border-dashed border-gray-200 transition-colors duration-200 hover:border-amber-300">
                       {uploading ? (
-                        <Upload className="h-5 w-5 animate-bounce text-muted-foreground" />
+                        <Upload className="h-5 w-5 animate-bounce text-amber-500" />
                       ) : (
-                        <ImagePlus className="h-5 w-5 text-muted-foreground" />
+                        <ImagePlus className="h-5 w-5 text-gray-400" />
                       )}
                     </div>
                   </>
                 ) : (
-                  <div className="flex flex-col items-center gap-1 text-muted-foreground">
+                  <div className="flex flex-col items-center gap-2 text-gray-400">
                     <ImagePlus className="h-8 w-8" />
                     <span className="text-sm">拖拽或点击上传图片</span>
                   </div>
@@ -186,6 +188,7 @@ export default function PublishPage() {
                 onChange={(e) => setTitle(e.target.value)}
                 maxLength={100}
                 required
+                className="transition-all duration-200 focus:ring-2 focus:ring-amber-200"
               />
               <span className="text-xs text-muted-foreground">{title.length}/100</span>
             </div>
@@ -200,6 +203,7 @@ export default function PublishPage() {
                 onChange={(e) => setBody(e.target.value)}
                 rows={6}
                 maxLength={5000}
+                className="transition-all duration-200 focus:ring-2 focus:ring-amber-200"
               />
               <span className="text-xs text-muted-foreground">{body.length}/5000</span>
             </div>
@@ -218,6 +222,7 @@ export default function PublishPage() {
                       addTag();
                     }
                   }}
+                  className="transition-all duration-200 focus:ring-2 focus:ring-amber-200"
                 />
                 <Button type="button" variant="secondary" size="sm" onClick={addTag}>
                   添加
@@ -228,7 +233,7 @@ export default function PublishPage() {
                   {tags.map((tag) => (
                     <span key={tag} className="tag-chip gap-1">
                       #{tag}
-                      <button type="button" onClick={() => removeTag(tag)} className="ml-1 hover:text-red-500">
+                      <button type="button" onClick={() => removeTag(tag)} className="ml-1 hover:text-red-500 transition-colors duration-200">
                         <X className="h-3 w-3" />
                       </button>
                     </span>
@@ -238,7 +243,11 @@ export default function PublishPage() {
             </div>
 
             {/* Submit */}
-            <Button type="submit" className="w-full gap-2" disabled={submitting || uploading}>
+            <Button
+              type="submit"
+              className="btn-press w-full gap-2 bg-gradient-to-r from-amber-500 to-orange-400 shadow-md shadow-amber-200/50 transition-all duration-200 hover:shadow-lg hover:shadow-amber-200/60 hover:brightness-105"
+              disabled={submitting || uploading}
+            >
               <Send className="h-4 w-4" />
               {submitting ? "发布中…" : "发布笔记"}
             </Button>

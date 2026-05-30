@@ -13,3 +13,7 @@ openspec
 .opencode
 .trae
 
+# Frontend build output and dependencies
+web/dist
+web/node_modules
+

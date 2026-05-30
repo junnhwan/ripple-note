@@ -516,3 +516,58 @@ All 9 backend stages are now complete. The project has:
 7. ✅ Content interactions and follow graph (Stage 7)
 8. ✅ Redis caching for feed and content reads (Stage 8)
 9. ✅ Outbox event publishing (Stage 9)
+10. ✅ React frontend for content community demo (Stage 10)
+
+## 2026-05-30 Stage 10: React Frontend
+
+### Stage Goal
+
+Build a complete React frontend for the content community, covering feed browsing, user auth, note publishing, note detail, profile, and admin review. The UI style is inspired by 小红书 (Xiaohongshu): masonry waterfall cards, rounded corners, soft cyan color palette, and image-first layout.
+
+### Files Created
+
+- `web/` — Entire React frontend SPA.
+  - `vite.config.ts`: Vite config with TailwindCSS v4 plugin, path alias (`@/`), and dev proxy (`/api` and `/uploads` → backend).
+  - `src/types/index.ts`: TypeScript types matching all backend DTOs (`User`, `Note`, `FeedItem`, `FeedResult`, `Comment`, `ReviewTask`, `ApiEnvelope`).
+  - `src/api/client.ts`: Fetch wrapper with auto Bearer token from localStorage, unified error handling via `ApiError` class.
+  - `src/api/auth.ts`, `feed.ts`, `notes.ts`, `upload.ts`, `interaction.ts`, `review.ts`: Typed API modules.
+  - `src/context/AuthContext.tsx`: Auth provider with login/register/logout/refresh, persists token in localStorage.
+  - `src/hooks/useInfiniteScroll.ts`: Intersection Observer hook for infinite scroll.
+  - `src/components/ui/`: shadcn/ui-style components (Button, Input, Textarea, Card, Avatar, Badge, Skeleton, Label, Tabs, Dialog, DropdownMenu, Alert).
+  - `src/components/layout/`: Navbar, MobileNav, Layout, BackToTop.
+  - `src/components/feed/`: FeedCard (waterfall card), FeedSkeleton.
+  - `src/components/interaction/`: LikeButton (heart pop animation), FavoriteButton (star flash), FollowButton.
+  - `src/components/common/`: EmptyState, ErrorState.
+  - `src/pages/`: FeedPage, HotPage, LoginPage, RegisterPage, PublishPage, NoteDetailPage, ProfilePage, AdminReviewPage.
+
+### Tech Stack
+
+- React 19 + Vite + TypeScript
+- TailwindCSS v4 (Vite plugin, CSS-first `@theme` configuration)
+- React Router v7 (client-side routing with layout outlet)
+- TanStack Query v5 (data fetching, caching, mutations)
+- Radix UI primitives (Dialog, DropdownMenu, Tabs, Label)
+- Lucide React (icons)
+- Sonner (toast notifications)
+- class-variance-authority (component variants)
+
+### Frontend Notes
+
+- **CSS-first TailwindCSS v4**: No `tailwind.config.js` — theme colors are defined in `src/index.css` using `@theme {}` block. Vite plugin (`@tailwindcss/vite`) replaces PostCSS setup.
+- **Masonry grid**: Pure CSS `column-count` layout with responsive breakpoints (2/3/4 columns). No JS layout library needed.
+- **Infinite scroll**: `useInfiniteScroll` hook wraps `IntersectionObserver` with `rootMargin: 200px` to preload before reaching the bottom.
+- **Auth flow**: Token stored in `localStorage`. `apiRequest` auto-attaches `Bearer` header. `AuthContext` fetches `/api/users/me` on mount to validate token.
+- **Optimistic-like UX**: Like/favorite buttons use local state with animation classes (`heart-pop`, `star-flash`) and API call in parallel. Errors roll back.
+- **Image upload**: Drag-and-drop plus click-to-browse. Files uploaded individually via `FormData` to `/api/uploads/images`. Preview thumbnails with remove button.
+- **FeedList component**: Reusable across tabs (latest/hot/following) via a `fetcher` prop, accumulating items with cursor pagination.
+- **Admin review**: Dialog-based review with inline note preview fetched via TanStack Query. Approve/reject with optional reason.
+
+### Verification
+
+- `npm run build` passes with zero TypeScript errors.
+- All 7 pages render with proper loading/empty/error states.
+- Dev proxy routes `/api/*` and `/uploads/*` to `http://127.0.0.1:8080`.
+
+### Demo Flow
+
+Browser can complete: Register → Login → Publish Note → Admin Review → Feed Display → Like/Comment/Follow

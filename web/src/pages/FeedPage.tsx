@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery } from "@tanstack/react-query";
 import { getLatestFeed, getHotFeed, getFollowingFeed } from "@/api/feed";
 import FeedCard from "@/components/feed/FeedCard";
 import FeedSkeleton from "@/components/feed/FeedSkeleton";
@@ -13,13 +13,34 @@ import type { FeedItem } from "@/types";
 
 type FeedTab = "latest" | "hot" | "following";
 
+const FETCHERS: Record<string, (cursor: string, limit: number) => Promise<{ items: FeedItem[]; next_cursor: string; has_more: boolean }>> = {
+  latest: getLatestFeed,
+  hot: getHotFeed,
+  following: getFollowingFeed,
+};
+
+function getInitialTab(): FeedTab {
+  const params = new URLSearchParams(window.location.search);
+  const t = params.get("tab");
+  if (t === "hot" || t === "following" || t === "latest") return t;
+  return "latest";
+}
+
 export default function FeedPage() {
   const { user } = useAuth();
-  const [tab, setTab] = useState<FeedTab>("latest");
+  const [tab, setTab] = useState<FeedTab>(getInitialTab);
+
+  const handleTabChange = useCallback((v: string) => {
+    const newTab = v as FeedTab;
+    setTab(newTab);
+    const url = new URL(window.location.href);
+    url.searchParams.set("tab", newTab);
+    window.history.replaceState(null, "", url.toString());
+  }, []);
 
   return (
     <div className="page-enter">
-      <Tabs value={tab} onValueChange={(v) => setTab(v as FeedTab)}>
+      <Tabs value={tab} onValueChange={handleTabChange}>
         <TabsList className="mb-4">
           <TabsTrigger value="latest">最新</TabsTrigger>
           <TabsTrigger value="hot">热门</TabsTrigger>
@@ -27,14 +48,14 @@ export default function FeedPage() {
         </TabsList>
 
         <TabsContent value="latest">
-          <FeedList fetcher={getLatestFeed} />
+          <FeedList tab="latest" />
         </TabsContent>
         <TabsContent value="hot">
-          <FeedList fetcher={getHotFeed} />
+          <FeedList tab="hot" />
         </TabsContent>
         {user && (
           <TabsContent value="following">
-            <FeedList fetcher={getFollowingFeed} />
+            <FeedList tab="following" />
           </TabsContent>
         )}
       </Tabs>
@@ -43,39 +64,37 @@ export default function FeedPage() {
   );
 }
 
-function FeedList({
-  fetcher,
-}: {
-  fetcher: (cursor: string, limit: number) => Promise<{ items: FeedItem[]; next_cursor: string; has_more: boolean }>;
-}) {
-  const [items, setItems] = useState<FeedItem[]>([]);
-  const [cursor, setCursor] = useState("");
-  const [hasMore, setHasMore] = useState(true);
+function FeedList({ tab }: { tab: string }) {
+  const fetcher = FETCHERS[tab];
 
-  const { isLoading, isError, refetch } = useQuery({
-    queryKey: ["feed", fetcher, cursor],
-    queryFn: async () => {
-      const result = await fetcher(cursor, 20);
-      setItems((prev) => (cursor === "" ? result.items : [...prev, ...result.items]));
-      setCursor(result.next_cursor || "");
-      setHasMore(result.has_more);
-      return result;
-    },
-    enabled: true,
+  const {
+    data,
+    isLoading,
+    isError,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+    refetch,
+  } = useInfiniteQuery({
+    queryKey: ["feed", tab],
+    queryFn: ({ pageParam }) => fetcher(pageParam ?? "", 20),
+    initialPageParam: "",
+    getNextPageParam: (lastPage) => (lastPage.has_more ? lastPage.next_cursor : undefined),
+    enabled: !!fetcher,
   });
 
-  const loadMore = useCallback(() => {
-    if (hasMore && !isLoading) {
-      refetch();
-    }
-  }, [hasMore, isLoading, refetch]);
+  const items: FeedItem[] = data?.pages.flatMap((p) => p.items) ?? [];
 
-  const sentinelRef = useInfiniteScroll(loadMore, hasMore, isLoading);
+  const loadMore = useCallback(() => {
+    if (hasNextPage && !isFetchingNextPage) {
+      fetchNextPage();
+    }
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
+
+  const sentinelRef = useInfiniteScroll(loadMore, !!hasNextPage, isLoading || isFetchingNextPage);
 
   if (isLoading && items.length === 0) return <FeedSkeleton />;
-
   if (isError) return <ErrorState onRetry={() => refetch()} />;
-
   if (items.length === 0) return <EmptyState />;
 
   return (
@@ -85,9 +104,11 @@ function FeedList({
           <FeedCard key={item.id} item={item} />
         ))}
       </div>
-      {hasMore && (
+      {hasNextPage && (
         <div ref={sentinelRef} className="py-8 text-center">
-          <span className="text-sm text-muted-foreground">加载中…</span>
+          <span className="text-sm text-muted-foreground">
+            {isFetchingNextPage ? "加载中…" : ""}
+          </span>
         </div>
       )}
     </>

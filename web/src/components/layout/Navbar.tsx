@@ -9,7 +9,7 @@ import {
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
-import { PenSquare, User, LogOut, Shield, Compass, Home } from "lucide-react";
+import { PenSquare, User, LogOut, Shield, Compass } from "lucide-react";
 
 export default function Navbar() {
   const { user, logout } = useAuth();
@@ -17,11 +17,6 @@ export default function Navbar() {
   const location = useLocation();
 
   const isActive = (path: string) => location.pathname === path;
-
-  const navLinks = [
-    { path: "/", label: "发现", icon: Compass },
-    { path: "/hot", label: "热门", icon: Home },
-  ];
 
   return (
     <header className="sticky top-0 z-40 w-full border-b bg-white/80 backdrop-blur-md">
@@ -34,18 +29,16 @@ export default function Navbar() {
 
         {/* Desktop nav links */}
         <nav className="hidden items-center gap-1 md:flex">
-          {navLinks.map((link) => (
-            <Link key={link.path} to={link.path}>
-              <Button
-                variant={isActive(link.path) ? "secondary" : "ghost"}
-                size="sm"
-                className="gap-1.5"
-              >
-                <link.icon className="h-4 w-4" />
-                {link.label}
-              </Button>
-            </Link>
-          ))}
+          <Link to="/">
+            <Button
+              variant={isActive("/") ? "secondary" : "ghost"}
+              size="sm"
+              className="gap-1.5"
+            >
+              <Compass className="h-4 w-4" />
+              发现
+            </Button>
+          </Link>
         </nav>
 
         {/* Right side */}

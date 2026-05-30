@@ -1,6 +1,6 @@
 import { Link, useLocation } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
-import { Home, Flame, PenSquare, User } from "lucide-react";
+import { Home, PenSquare, User } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export default function MobileNav() {
@@ -9,7 +9,6 @@ export default function MobileNav() {
 
   const links = [
     { path: "/", label: "发现", icon: Home },
-    { path: "/hot", label: "热门", icon: Flame },
     { path: "/publish", label: "发布", icon: PenSquare, auth: true },
     { path: user ? "/me" : "/login", label: user ? "我的" : "登录", icon: User },
   ];

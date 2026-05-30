@@ -303,3 +303,54 @@ Stage 6 should add cursor-based feed endpoints:
 - Latest feed, hot feed, following feed, tag feed.
 - Compound cursor pagination.
 - Feed DTO hydration.
+
+## 2026-05-30 Stage 6: Feed Scenes
+
+### Stage Goal
+
+Implement cursor-based pagination for latest, hot, following, and tag feeds. Only `published` content appears in public feeds.
+
+### Files Created
+
+- `internal/feed/model.go`: `Cursor` struct with base64 JSON encoding/decoding, cursor application helpers.
+- `internal/feed/repository.go`: GORM queries for latest/hot/following/tag with cursor support.
+- `internal/feed/service.go`: `Latest`, `Hot`, `Following`, `ByTag` business logic, DTO hydration.
+- `internal/feed/handler.go`: HTTP handlers for feed endpoints.
+- `internal/feed/handler_test.go`: 4 integration tests covering latest, exclusion, tag, and cursor pagination.
+- `internal/follow/provider.go`: Stub `FollowProvider` for Stage 7.
+
+### Files Modified
+
+- `internal/http/router.go`: Added `FeedRoutes` field.
+- `cmd/server/main.go`: Wired feed module with stub follow provider.
+
+### Go Backend Notes
+
+- **Cursor pagination**: Uses compound cursors `(published_at, id)` for latest/following and `(hot_score, id)` for hot. The cursor is base64-encoded JSON. This avoids offset-based pagination problems (skipped/duplicated items when data changes between page loads).
+- **Fetch N+1**: The `limit+1` pattern fetches one extra record to determine `has_more` without a separate COUNT query.
+- **Feed safety**: All feed queries filter `status = published AND published_at IS NOT NULL`, ensuring pending/rejected content never appears.
+- **Tag feed JOIN**: The tag feed uses `JOIN note_tags ON note_tags.note_id = notes.id` for efficient tag filtering.
+- **Following feed**: Takes a `FollowProvider` interface. Stage 7 will provide a real implementation; Stage 6 uses a stub returning empty.
+
+### Java Spring Boot Comparison
+
+- Cursor pagination ≈ Spring Data's `Pageable` with keyset pagination (not offset-based).
+- `limit+1` has_more pattern ≈ using `PageRequest.of(0, limit+1)` in Spring Data.
+- Feed DTO hydration ≈ Spring's `ModelMapper` or MapStruct for converting entities to DTOs.
+- `FollowProvider` interface ≈ Spring's `@Autowired` with lazy/noop fallback.
+
+### Verification
+
+- `go test -count=1 ./...` — all packages pass including 4 feed tests.
+- Latest feed returns only published notes.
+- Pending/rejected notes are excluded from all feeds.
+- Tag feed filters by tag name correctly.
+- Cursor pagination with `limit=2` returns correct pages with `has_more=true` and no overlap.
+- Nonexistent tag returns empty feed.
+
+### Next Stage
+
+Stage 7 should add interactions and social graph:
+
+- Like, favorite, comment, follow APIs.
+- Idempotent design for repeated operations.

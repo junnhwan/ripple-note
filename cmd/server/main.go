@@ -14,6 +14,8 @@ import (
 	"ripple-note/internal/account"
 	"ripple-note/internal/auth"
 	"ripple-note/internal/config"
+	"ripple-note/internal/feed"
+	"ripple-note/internal/follow"
 	httpapi "ripple-note/internal/http"
 	"ripple-note/internal/middleware"
 	"ripple-note/internal/note"
@@ -61,6 +63,7 @@ func main() {
 		noteRoutes     httpapi.AccountRoutes
 		uploadRoutes   httpapi.AccountRoutes
 		reviewRoutes   httpapi.AccountRoutes
+		feedRoutes     httpapi.AccountRoutes
 		internalRoutes httpapi.InternalRoutes
 	)
 
@@ -100,13 +103,18 @@ func main() {
 		reviewRepo := review.NewRepository(db)
 		reviewService := review.NewService(reviewRepo, noteRepo)
 		reviewRoutes = review.NewHandler(reviewService)
-			internalRoutes = review.NewInternalHandler(reviewRepo, noteRepo)
+		internalRoutes = review.NewInternalHandler(reviewRepo, noteRepo)
 
 		noteService := note.NewService(noteRepo, authorProvider, reviewService)
 		optionalAuth := middleware.OptionalAuth(jwtManager)
 		noteRoutes = note.NewHandler(noteService, optionalAuth)
 
 		uploadRoutes = upload.NewHandler(cfg.Upload.ImageDir, cfg.Upload.MaxImageSize)
+
+		feedRepo := feed.NewRepository(db)
+		followProvider := &follow.StubFollowProvider{}
+		feedService := feed.NewService(db, feedRepo, noteRepo, authorProvider, followProvider)
+		feedRoutes = feed.NewHandler(feedService, optionalAuth)
 
 		logger.Info("mysql connected")
 	} else {
@@ -121,10 +129,11 @@ func main() {
 			NoteRoutes:      noteRoutes,
 			UploadRoutes:    uploadRoutes,
 			ReviewRoutes:    reviewRoutes,
+			FeedRoutes:      feedRoutes,
 			JWTManager:      jwtManager,
 			UploadStaticDir: cfg.Upload.ImageDir,
-				InternalRoutes:   internalRoutes,
-				InternalToken:    cfg.Review.InternalToken,
+			InternalRoutes:  internalRoutes,
+			InternalToken:   cfg.Review.InternalToken,
 		}),
 		ReadTimeout:  cfg.HTTP.ReadTimeout,
 		WriteTimeout: cfg.HTTP.WriteTimeout,

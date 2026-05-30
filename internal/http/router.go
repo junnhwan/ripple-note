@@ -25,6 +25,7 @@ type RouterOptions struct {
 	NoteRoutes       AccountRoutes
 	UploadRoutes     AccountRoutes
 	ReviewRoutes     AccountRoutes
+	FeedRoutes       AccountRoutes
 	InternalRoutes   InternalRoutes
 	JWTManager       *auth.JWTManager
 	InternalToken    string
@@ -68,6 +69,10 @@ func NewRouter(options RouterOptions) http.Handler {
 
 	if options.ReviewRoutes != nil {
 		options.ReviewRoutes.RegisterRoutes(router.Group("/api"), requireAuth)
+	}
+
+	if options.FeedRoutes != nil {
+		options.FeedRoutes.RegisterRoutes(router.Group("/api"), requireAuth)
 	}
 
 	if options.InternalRoutes != nil {

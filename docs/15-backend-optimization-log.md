@@ -170,6 +170,56 @@
 - 软删除场景下，第二次删除查不到未删除记录，因此应该幂等返回，而不是继续扣计数。
 - 写路径里的缓存失效应该在事务成功后执行，避免业务回滚但缓存先被删造成无意义抖动。
 
+### Stage G: Complete Public Author Notes And Note Removal Flow
+
+目标：补齐 API 文档中已经声明的 `GET /api/users/{userId}/notes` 和 `DELETE /api/notes/{noteId}`，并统一公共可见性规则。
+
+优化方案：
+
+- 公共内容可见性统一为 `notes.status = published AND notes.visibility = public`。
+- 作者删除内容不做物理删除，而是把 `notes.status` 改为 `removed`，保留审计和生命周期信息。
+- 删除接口只允许作者操作，非作者返回 `403 forbidden`。
+- 重复删除返回 `deleted=false`，保持幂等。
+- Redis 启用时，删除成功后主动失效：
+  - `feed:latest:first-page`
+  - `feed:hot:first-page`
+  - `note:detail:{note_id}`
+  - `note:counts:{note_id}`
+
+主要实现：
+
+- `note.Handler`:
+  - 新增 `GET /api/users/:userId/notes`。
+  - 新增 `DELETE /api/notes/:noteId`。
+  - 注入可选 `CacheInvalidator`，只在真实删除成功后失效 Feed 和 Note cache。
+- `note.Service`:
+  - 新增 `PublicNotes`，负责分页参数归一化和 DTO 组装。
+  - 新增 `DeleteOwn`，负责作者权限和幂等删除语义。
+  - 修正 `Detail` 的公开可见性判断，非作者只能看到 `published + public`。
+- `note.Repository`:
+  - 新增 `FindPublicNotesByAuthorID`，按 `published_at DESC, id DESC` 返回作者公开内容。
+  - 新增 `MarkNoteRemoved`，通过条件更新避免重复删除产生额外状态变更。
+- `cache.NoteServiceCache`:
+  - 对新增 service 方法做透传，避免 Redis 装饰器破坏接口。
+
+关键测试：
+
+- `TestPublicAuthorNotesOnlyReturnsPublishedPublicNotes`
+  - 验证作者公开列表不会泄漏 pending/private/removed 或其他作者内容。
+- `TestNoteDetailHidesPrivatePublishedNoteFromNonAuthor`
+  - 验证 private published 内容只有作者本人可见。
+- `TestDeleteOwnNoteSoftRemovesNote`
+  - 验证作者删除后状态变为 `removed`，详情返回 404，重复删除幂等。
+- `TestDeleteOwnNoteRejectsNonAuthor`
+  - 验证非作者删除被拒绝且原状态不变。
+
+复习重点：
+
+- 文档中的 API 契约必须和路由实现对齐，否则面试演示时很容易被追问出缺口。
+- `removed` 状态比物理删除更适合内容社区，因为它能保留治理、审计和运营后台所需的历史信息。
+- 公开读路径要统一条件，不要详情页一套规则、列表页另一套规则。
+- 缓存失效要跟随“真实状态变化”，重复删除这种幂等请求不需要反复删除缓存。
+
 ## Implementation Notes
 
 ### Package Boundaries
@@ -213,6 +263,17 @@ begin tx
   update notes counter
   insert outbox_events(interaction.created/removed)
 commit
+invalidate note detail/count cache
+```
+
+作者删除内容：
+
+```text
+find note
+check author_id
+if status != removed:
+  update notes.status = removed
+invalidate feed first-page cache
 invalidate note detail/count cache
 ```
 

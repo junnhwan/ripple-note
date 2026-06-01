@@ -105,6 +105,38 @@ func TestNoteRoutesPublishDetailAndMyNotes(t *testing.T) {
 	}
 }
 
+func TestNoteDetailHidesPrivatePublishedNoteFromNonAuthor(t *testing.T) {
+	t.Parallel()
+
+	router, db := newNoteTestRouter(t)
+	authorToken := registerAndLogin(t, router, "private-author@example.com", "secret123", "PrivateAuthor")
+	otherToken := registerAndLogin(t, router, "private-other@example.com", "secret123", "PrivateOther")
+	noteID := publishNote(t, router, authorToken, "Private published note")
+
+	if err := db.Model(&note.Note{}).Where("id = ?", noteID).Updates(map[string]any{
+		"status":       note.StatusPublished,
+		"visibility":   note.VisibilityPrivate,
+		"published_at": time.Now(),
+	}).Error; err != nil {
+		t.Fatalf("make note private published: %v", err)
+	}
+
+	authorResp := getJSON(t, router, fmt.Sprintf("/api/notes/%d", noteID), "Bearer "+authorToken)
+	if authorResp.Status != http.StatusOK {
+		t.Fatalf("expected author detail status 200, got %d", authorResp.Status)
+	}
+
+	anonResp := getJSON(t, router, fmt.Sprintf("/api/notes/%d", noteID), "")
+	if anonResp.Status != http.StatusNotFound {
+		t.Fatalf("expected anonymous detail status 404, got %d", anonResp.Status)
+	}
+
+	otherResp := getJSON(t, router, fmt.Sprintf("/api/notes/%d", noteID), "Bearer "+otherToken)
+	if otherResp.Status != http.StatusNotFound {
+		t.Fatalf("expected other user detail status 404, got %d", otherResp.Status)
+	}
+}
+
 func TestNoteRoutesRejectInvalidPublish(t *testing.T) {
 	t.Parallel()
 
@@ -156,6 +188,118 @@ func TestNoteRoutesDetailNotFound(t *testing.T) {
 	resp := getJSON(t, router, "/api/notes/99999", "Bearer "+token)
 	if resp.Status != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d", resp.Status)
+	}
+}
+
+func TestPublicAuthorNotesOnlyReturnsPublishedPublicNotes(t *testing.T) {
+	t.Parallel()
+
+	router, db := newNoteTestRouter(t)
+	authorToken := registerAndLogin(t, router, "public-author@example.com", "secret123", "PublicAuthor")
+	otherToken := registerAndLogin(t, router, "public-other@example.com", "secret123", "OtherAuthor")
+
+	publishedID := publishNote(t, router, authorToken, "Published public note")
+	pendingID := publishNote(t, router, authorToken, "Pending note")
+	privateID := publishNote(t, router, authorToken, "Private published note")
+	removedID := publishNote(t, router, authorToken, "Removed note")
+	otherAuthorID := publishNote(t, router, otherToken, "Other author published note")
+
+	now := time.Now()
+	if err := db.Model(&note.Note{}).Where("id IN ?", []uint64{publishedID, privateID, removedID, otherAuthorID}).Updates(map[string]any{
+		"status":       note.StatusPublished,
+		"published_at": now,
+	}).Error; err != nil {
+		t.Fatalf("publish notes: %v", err)
+	}
+	if err := db.Model(&note.Note{}).Where("id = ?", privateID).Update("visibility", note.VisibilityPrivate).Error; err != nil {
+		t.Fatalf("make note private: %v", err)
+	}
+	if err := db.Model(&note.Note{}).Where("id = ?", removedID).Update("status", note.StatusRemoved).Error; err != nil {
+		t.Fatalf("remove note: %v", err)
+	}
+
+	resp := getJSON(t, router, "/api/users/1/notes", "")
+	if resp.Status != http.StatusOK {
+		t.Fatalf("expected public author notes status 200, got %d: %s", resp.Status, string(resp.RawBody))
+	}
+
+	list := decodeData[note.NoteListDTO](t, resp.Data)
+	if list.Total != 1 {
+		t.Fatalf("expected total 1, got %d", list.Total)
+	}
+	if len(list.Items) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(list.Items))
+	}
+	if list.Items[0].ID != publishedID {
+		t.Fatalf("expected only published public note %d, got %d", publishedID, list.Items[0].ID)
+	}
+	if list.Items[0].ID == pendingID || list.Items[0].ID == privateID || list.Items[0].ID == removedID || list.Items[0].ID == otherAuthorID {
+		t.Fatalf("public author notes leaked non-public note id %d", list.Items[0].ID)
+	}
+}
+
+func TestDeleteOwnNoteSoftRemovesNote(t *testing.T) {
+	t.Parallel()
+
+	router, db := newNoteTestRouter(t)
+	authorToken := registerAndLogin(t, router, "delete-author@example.com", "secret123", "DeleteAuthor")
+	noteID := publishNote(t, router, authorToken, "Delete me")
+
+	if err := db.Model(&note.Note{}).Where("id = ?", noteID).Updates(map[string]any{
+		"status":       note.StatusPublished,
+		"published_at": time.Now(),
+	}).Error; err != nil {
+		t.Fatalf("publish note: %v", err)
+	}
+
+	resp := deleteJSON(t, router, fmt.Sprintf("/api/notes/%d", noteID), "Bearer "+authorToken)
+	if resp.Status != http.StatusOK {
+		t.Fatalf("expected delete status 200, got %d: %s", resp.Status, string(resp.RawBody))
+	}
+
+	var stored note.Note
+	if err := db.First(&stored, noteID).Error; err != nil {
+		t.Fatalf("find removed note: %v", err)
+	}
+	if stored.Status != note.StatusRemoved {
+		t.Fatalf("expected note status %s, got %s", note.StatusRemoved, stored.Status)
+	}
+
+	anonResp := getJSON(t, router, fmt.Sprintf("/api/notes/%d", noteID), "")
+	if anonResp.Status != http.StatusNotFound {
+		t.Fatalf("expected anonymous detail 404 after delete, got %d", anonResp.Status)
+	}
+
+	authorResp := getJSON(t, router, fmt.Sprintf("/api/notes/%d", noteID), "Bearer "+authorToken)
+	if authorResp.Status != http.StatusNotFound {
+		t.Fatalf("expected author detail 404 after delete, got %d", authorResp.Status)
+	}
+
+	repeatResp := deleteJSON(t, router, fmt.Sprintf("/api/notes/%d", noteID), "Bearer "+authorToken)
+	if repeatResp.Status != http.StatusOK {
+		t.Fatalf("expected repeated delete status 200, got %d: %s", repeatResp.Status, string(repeatResp.RawBody))
+	}
+}
+
+func TestDeleteOwnNoteRejectsNonAuthor(t *testing.T) {
+	t.Parallel()
+
+	router, db := newNoteTestRouter(t)
+	authorToken := registerAndLogin(t, router, "forbid-author@example.com", "secret123", "ForbidAuthor")
+	otherToken := registerAndLogin(t, router, "forbid-other@example.com", "secret123", "ForbidOther")
+	noteID := publishNote(t, router, authorToken, "Not yours")
+
+	resp := deleteJSON(t, router, fmt.Sprintf("/api/notes/%d", noteID), "Bearer "+otherToken)
+	if resp.Status != http.StatusForbidden {
+		t.Fatalf("expected delete status 403 for non-author, got %d: %s", resp.Status, string(resp.RawBody))
+	}
+
+	var stored note.Note
+	if err := db.First(&stored, noteID).Error; err != nil {
+		t.Fatalf("find note: %v", err)
+	}
+	if stored.Status != note.StatusPendingReview {
+		t.Fatalf("expected note to keep status %s, got %s", note.StatusPendingReview, stored.Status)
 	}
 }
 
@@ -244,10 +388,27 @@ func registerAndLogin(t *testing.T, handler http.Handler, email, password, nickn
 	return session.Token
 }
 
+func publishNote(t *testing.T, handler http.Handler, token, title string) uint64 {
+	t.Helper()
+
+	resp := postJSON(t, handler, "/api/notes", map[string]any{
+		"title": title,
+		"body":  "Body for " + title,
+	}, "Bearer "+token)
+	if resp.Status != http.StatusCreated {
+		t.Fatalf("publish %q: expected 201, got %d: %s", title, resp.Status, string(resp.RawBody))
+	}
+	published := decodeData[note.NoteDTO](t, resp.Data)
+	if published.ID == 0 {
+		t.Fatalf("publish %q: expected note id", title)
+	}
+	return published.ID
+}
+
 type apiTestResponse struct {
-	Status  int
-	Data    json.RawMessage `json:"data"`
-	Error   *struct {
+	Status int
+	Data   json.RawMessage `json:"data"`
+	Error  *struct {
 		Code    string `json:"code"`
 		Message string `json:"message"`
 	} `json:"error"`
@@ -274,6 +435,16 @@ func getJSON(t *testing.T, handler http.Handler, path string, authorization stri
 	t.Helper()
 
 	req := httptest.NewRequest(http.MethodGet, path, nil)
+	if authorization != "" {
+		req.Header.Set("Authorization", authorization)
+	}
+	return doRequest(t, handler, req)
+}
+
+func deleteJSON(t *testing.T, handler http.Handler, path string, authorization string) apiTestResponse {
+	t.Helper()
+
+	req := httptest.NewRequest(http.MethodDelete, path, nil)
 	if authorization != "" {
 		req.Header.Set("Authorization", authorization)
 	}

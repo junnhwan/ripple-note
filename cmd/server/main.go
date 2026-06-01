@@ -219,7 +219,11 @@ func main() {
 		}
 
 		feedRoutes = feed.NewHandler(feedHandler, optionalAuth)
-		noteRoutes = note.NewHandler(noteHandlerService, optionalAuth)
+		noteHandler := note.NewHandler(noteHandlerService, optionalAuth)
+		if cacheInvalidator != nil {
+			noteHandler.SetCacheInvalidator(cacheInvalidator)
+		}
+		noteRoutes = noteHandler
 		if cacheInvalidator != nil {
 			interactionRoutes = interaction.NewHandler(interactionRepo, cacheInvalidator)
 		} else {

@@ -17,6 +17,8 @@ type NoteService interface {
 	Publish(ctx context.Context, input note.PublishInput, authorID uint64) (note.NoteDTO, error)
 	Detail(ctx context.Context, noteID uint64, viewerID uint64) (note.NoteDTO, error)
 	MyNotes(ctx context.Context, authorID uint64, limit, offset int) (note.NoteListDTO, error)
+	PublicNotes(ctx context.Context, authorID uint64, limit, offset int) (note.NoteListDTO, error)
+	DeleteOwn(ctx context.Context, noteID uint64, authorID uint64) (bool, error)
 }
 
 type NoteCountsSnapshot struct {
@@ -65,4 +67,12 @@ func (c *NoteServiceCache) Detail(ctx context.Context, noteID uint64, viewerID u
 
 func (c *NoteServiceCache) MyNotes(ctx context.Context, authorID uint64, limit, offset int) (note.NoteListDTO, error) {
 	return c.source.MyNotes(ctx, authorID, limit, offset)
+}
+
+func (c *NoteServiceCache) PublicNotes(ctx context.Context, authorID uint64, limit, offset int) (note.NoteListDTO, error) {
+	return c.source.PublicNotes(ctx, authorID, limit, offset)
+}
+
+func (c *NoteServiceCache) DeleteOwn(ctx context.Context, noteID uint64, authorID uint64) (bool, error) {
+	return c.source.DeleteOwn(ctx, noteID, authorID)
 }

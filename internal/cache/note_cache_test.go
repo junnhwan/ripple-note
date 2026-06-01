@@ -137,6 +137,14 @@ func (s *fakeNoteSource) MyNotes(context.Context, uint64, int, int) (note.NoteLi
 	return note.NoteListDTO{}, nil
 }
 
+func (s *fakeNoteSource) PublicNotes(context.Context, uint64, int, int) (note.NoteListDTO, error) {
+	return note.NoteListDTO{}, nil
+}
+
+func (s *fakeNoteSource) DeleteOwn(context.Context, uint64, uint64) (bool, error) {
+	return false, nil
+}
+
 type memoryJSONStore struct {
 	mu     sync.Mutex
 	values map[string][]byte

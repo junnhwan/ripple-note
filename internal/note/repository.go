@@ -56,6 +56,25 @@ func (r *Repository) FindNotesByAuthorID(ctx context.Context, authorID uint64, l
 	return notes, total, nil
 }
 
+func (r *Repository) FindPublicNotesByAuthorID(ctx context.Context, authorID uint64, limit, offset int) ([]*Note, int64, error) {
+	var notes []*Note
+	var total int64
+
+	query := r.db.WithContext(ctx).Where(
+		"author_id = ? AND status = ? AND visibility = ?",
+		authorID,
+		StatusPublished,
+		VisibilityPublic,
+	)
+	if err := query.Model(&Note{}).Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	if err := query.Order("published_at DESC, id DESC").Limit(limit).Offset(offset).Find(&notes).Error; err != nil {
+		return nil, 0, err
+	}
+	return notes, total, nil
+}
+
 func (r *Repository) FindOrCreateTag(ctx context.Context, tx *gorm.DB, name string) (*Tag, error) {
 	var tag Tag
 	d := d(r.db, tx)
@@ -163,6 +182,17 @@ func (r *Repository) UpdateNoteStatus(ctx context.Context, tx *gorm.DB, noteID u
 
 func (r *Repository) UpdateReviewTaskID(ctx context.Context, tx *gorm.DB, noteID, taskID uint64) error {
 	return d(r.db, tx).WithContext(ctx).Model(&Note{}).Where("id = ?", noteID).Update("review_task_id", taskID).Error
+}
+
+func (r *Repository) MarkNoteRemoved(ctx context.Context, noteID uint64) (bool, error) {
+	result := r.db.WithContext(ctx).
+		Model(&Note{}).
+		Where("id = ? AND status <> ?", noteID, StatusRemoved).
+		Update("status", StatusRemoved)
+	if result.Error != nil {
+		return false, result.Error
+	}
+	return result.RowsAffected > 0, nil
 }
 
 func ExtractStorageKey(url string) string {

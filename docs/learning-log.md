@@ -828,3 +828,90 @@ Browser can complete: Register → Login → Publish Note → Admin Review → F
 ### Follow-Up
 
 - 可以继续补 `GET /api/users/{userId}/notes`、`DELETE /api/notes/{noteId}` 等 API 文档中声明但尚未实现的接口，进一步减少文档和代码偏差。
+
+## 2026-06-01 Optimization Stage G: Public Author Notes And Note Removal
+
+### Stage Goal
+
+补齐 API 文档中已经声明的内容侧接口：
+
+- `GET /api/users/{userId}/notes`: 查询作者公开内容列表。
+- `DELETE /api/notes/{noteId}`: 作者软删除自己的内容。
+
+本阶段同时修正一个可见性边界：非作者查看内容详情时必须同时满足 `published + public`，不能只判断 `published`。
+
+### Files Modified
+
+- `internal/note/handler.go`: 新增公开作者内容列表和删除自己内容的路由、错误处理、缓存失效注入。
+- `internal/note/service.go`: 新增 `PublicNotes`、`DeleteOwn`，并修正 `Detail` 的公开可见性规则。
+- `internal/note/repository.go`: 新增公开作者内容查询和 `status=removed` 条件更新。
+- `internal/note/handler_test.go`: 用 TDD 增加公开列表、private detail、作者删除、非作者删除测试。
+- `internal/cache/note_cache.go`: 扩展 service 装饰器接口，对新增方法透传。
+- `cmd/server/main.go`: Redis 启用时把 cache invalidator 注入 note handler。
+- `docs/cache-and-consistency.md`: 补充内容删除后的 Feed/Note cache 失效规则。
+- `docs/15-backend-optimization-log.md`: 追加本阶段优化过程、方案和实现复盘。
+
+### Go Backend Notes
+
+- **路由契约闭环**：`docs/04-api-design.md` 已经声明的接口应该在代码中存在，后端项目不是只写功能，还要保证 API contract 可核对。
+- **公开可见性统一**：公共详情、作者公开列表、Feed 都应以 `status=published AND visibility=public` 为准，避免 private 内容在某个读路径泄漏。
+- **软删除状态流**：内容删除使用 `status=removed`，不直接物理删除。这样可以保留审计和治理历史，也符合内容社区项目的生命周期叙事。
+- **幂等删除**：重复删除返回 `deleted=false`，不重复改状态，也不重复触发缓存失效。
+- **缓存失效边界**：删除成功后失效 Feed 首页和 Note detail/count cache；Redis 失败不回滚业务，因为 MySQL 仍是事实来源。
+
+### Java Spring Boot Comparison
+
+- `note.Service.DeleteOwn` 类似 Spring `@Transactional` service 中的业务权限判断和状态流转方法，只是 Go 这里显式返回 `(deleted, error)`。
+- `ErrForbidden` + handler 统一映射 HTTP 403，类似 Spring 里抛业务异常后由 `@ControllerAdvice` 转成统一错误响应。
+- GORM 条件更新 `WHERE id=? AND status<>removed` 类似 MyBatis/JPA 中的乐观条件更新，用 `RowsAffected` 判断是否真的发生状态变化。
+- `CacheInvalidator` 小接口类似 Java 中依赖一个 `CacheService` 接口，而不是让 note handler 直接依赖 Redis client。
+
+### Key Code Paths
+
+- 作者公开列表：
+
+```text
+GET /api/users/:userId/notes
+  -> note.Handler.PublicNotes
+  -> note.Service.PublicNotes
+  -> note.Repository.FindPublicNotesByAuthorID
+  -> toListDTO
+```
+
+- 作者删除内容：
+
+```text
+DELETE /api/notes/:noteId
+  -> note.Handler.DeleteOwn
+  -> note.Service.DeleteOwn
+  -> note.Repository.MarkNoteRemoved
+  -> InvalidateNoteCache + InvalidateFeedCache
+```
+
+- 公开详情可见性：
+
+```text
+GET /api/notes/:noteId
+  -> author can see own non-removed content
+  -> non-author can only see published + public content
+  -> removed always returns note_not_found
+```
+
+### Common Pitfalls
+
+- 不要只在列表页过滤 `visibility=public`，详情页也必须过滤，否则 private 内容可以被 ID 枚举访问。
+- 不要把内容删除做成物理删除，否则 review task、interaction、outbox、后台审计都可能丢上下文。
+- 不要对重复删除反复失效缓存或产事件；幂等请求没有真实状态变化。
+- Gin 中 `/users/:userId/notes` 和 `/users/me/notes` 路由同层，新增动态路由后必须跑旧的 `MyNotes` 测试防回归。
+
+### Verification
+
+- `go test ./internal/note -run "TestNoteDetailHidesPrivatePublishedNoteFromNonAuthor|TestPublicAuthorNotesOnlyReturnsPublishedPublicNotes|TestDeleteOwnNote" -v` passed。
+- `go test ./internal/note -v` passed。
+- `go test ./internal/note ./internal/cache ./cmd/server` passed。
+- `go test ./...` passed。
+
+### Follow-Up
+
+- 继续补齐 account API 文档和代码偏差：`DELETE /api/sessions/current`、`PATCH /api/users/me`、`GET /api/users/{userId}`。
+- 管理后台侧可以继续补 `GET /api/admin/notes`，但不要扩成复杂后台系统。

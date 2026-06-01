@@ -40,7 +40,7 @@
 | `feed:latest:first-page` | 匿名 latest Feed 第一页 DTO | 30s | 已接入 | note 发布、拒绝、移除、审核决策后删除 |
 | `feed:hot:first-page` | 匿名 hot Feed 第一页 DTO | 30s | 已接入 | note 状态变化、互动导致热度变化后删除或等待 TTL |
 | `note:detail:{id}` | 已发布 note 详情 DTO | 2m | 已接入匿名详情 | note 内容变更、状态变更、审核决策、移除 |
-| `note:counts:{id}` | like/favorite/comment 计数快照 | 1m | 已接入匿名详情写入 | like、unlike、favorite、unfavorite、comment、delete comment |
+| `note:counts:{id}` | like/favorite/comment 计数快照 | 1m | 已接入匿名详情写入 | like、unlike、favorite、unfavorite、comment、delete comment、note remove |
 | `user:profile:{id}` | 用户公开资料 DTO | 5m | key 已约定，读路径待补 | 用户修改昵称、头像、简介、状态 |
 | `rate:auth:register:ip:{ip}` | 注册限流计数 | 1h | 已接入 | TTL 到期自动清理 |
 | `rate:auth:login:ip:{ip}` | 登录限流计数 | 1m | 已接入 | TTL 到期自动清理 |
@@ -144,6 +144,26 @@ review decision committed
 - Note detail 不能继续返回旧状态。
 
 如果缓存删除失败，不应回滚已经成功的业务事务，但必须记录日志。短 TTL 会作为兜底。
+
+### Note Deletion Consistency
+
+作者删除内容采用状态流转，而不是物理删除：
+
+```text
+delete own note
+  -> notes.status = removed
+  -> delete feed:latest:first-page
+  -> delete feed:hot:first-page
+  -> delete note:detail:{note_id}
+  -> delete note:counts:{note_id}
+```
+
+这样设计的原因：
+
+- `removed` 仍保留内容记录，便于后续审计、管理后台和内容生命周期复盘。
+- 公共读路径只认 `status=published AND visibility=public`，因此 removed 内容不会出现在公共详情、作者公开列表或 Feed 中。
+- 重复删除返回 `deleted=false`，不重复触发缓存失效，保持写接口幂等。
+- 非作者删除返回 `403 forbidden`，不改变内容状态。
 
 ### Interaction Count Consistency
 

@@ -10,6 +10,7 @@ import (
 )
 
 var ErrInvalidInput = errors.New("invalid input")
+var ErrForbidden = errors.New("forbidden")
 
 type AuthorProvider interface {
 	FindByID(ctx context.Context, id uint64) (AuthorDTO, error)
@@ -109,8 +110,11 @@ func (s *Service) Detail(ctx context.Context, noteID uint64, viewerID uint64) (N
 		return NoteDTO{}, err
 	}
 
+	if note.Status == StatusRemoved {
+		return NoteDTO{}, ErrNoteNotFound
+	}
 	if viewerID == 0 || viewerID != note.AuthorID {
-		if note.Status != StatusPublished {
+		if note.Status != StatusPublished || note.Visibility != VisibilityPublic {
 			return NoteDTO{}, ErrNoteNotFound
 		}
 	}
@@ -131,6 +135,40 @@ func (s *Service) MyNotes(ctx context.Context, authorID uint64, limit, offset in
 		return NoteListDTO{}, err
 	}
 
+	return s.toListDTO(ctx, notes, total)
+}
+
+func (s *Service) PublicNotes(ctx context.Context, authorID uint64, limit, offset int) (NoteListDTO, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	notes, total, err := s.repo.FindPublicNotesByAuthorID(ctx, authorID, limit, offset)
+	if err != nil {
+		return NoteListDTO{}, err
+	}
+
+	return s.toListDTO(ctx, notes, total)
+}
+
+func (s *Service) DeleteOwn(ctx context.Context, noteID uint64, authorID uint64) (bool, error) {
+	note, err := s.repo.FindNoteByID(ctx, noteID)
+	if err != nil {
+		return false, err
+	}
+	if note.AuthorID != authorID {
+		return false, ErrForbidden
+	}
+	if note.Status == StatusRemoved {
+		return false, nil
+	}
+	return s.repo.MarkNoteRemoved(ctx, noteID)
+}
+
+func (s *Service) toListDTO(ctx context.Context, notes []*Note, total int64) (NoteListDTO, error) {
 	items := make([]NoteDTO, 0, len(notes))
 	for _, n := range notes {
 		dto, err := s.toDTO(ctx, n)

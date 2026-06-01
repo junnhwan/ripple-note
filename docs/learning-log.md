@@ -915,3 +915,88 @@ GET /api/notes/:noteId
 
 - 继续补齐 account API 文档和代码偏差：`DELETE /api/sessions/current`、`PATCH /api/users/me`、`GET /api/users/{userId}`。
 - 管理后台侧可以继续补 `GET /api/admin/notes`，但不要扩成复杂后台系统。
+
+## 2026-06-01 Optimization Stage H: Account Profile Contract
+
+### Stage Goal
+
+补齐 Account API 文档和代码之间的差异，让用户体系更完整：
+
+- `DELETE /api/sessions/current`: 当前会话注销。
+- `PATCH /api/users/me`: 更新当前用户资料。
+- `GET /api/users/{userId}`: 查看公开资料。
+
+### Files Modified
+
+- `internal/account/dto.go`: 新增 `PublicUserDTO`，公开资料只包含非敏感字段。
+- `internal/account/handler.go`: 新增 logout、更新资料、公开资料 handler 和路由。
+- `internal/account/service.go`: 新增 `UpdateProfile`、`PublicProfile` 及资料校验，`PATCH` 未传字段保持原值。
+- `internal/account/repository.go`: 新增 `UpdateProfile`。
+- `internal/account/handler_test.go`: 用 TDD 覆盖资料更新、公开资料、logout 和错误场景。
+- `docs/04-api-design.md`: 补充资料更新请求、公开资料响应和敏感字段限制。
+- `docs/cache-and-consistency.md`: 补充公开资料缓存边界和 stateless JWT logout 说明。
+- `docs/15-backend-optimization-log.md`: 追加本阶段优化过程、方案和实现复盘。
+- `docs/openapi.yaml`: 同步 Account 相关 API 契约。
+
+### Go Backend Notes
+
+- **DTO 分层**：`UserDTO` 是当前登录用户视图，可以包含 email、role、status；`PublicUserDTO` 是匿名公开视图，不能包含这些字段。
+- **资料更新校验**：`PATCH /api/users/me` 支持部分更新，未传字段保持原值；显式传 nickname 时不能为空且不超过 64 个字符；avatar_url 不超过 512；bio 不超过 512。校验放在 service 层，handler 只负责 JSON 和认证。
+- **stateless JWT logout**：当前 logout 不做服务端 token 黑名单，只返回 `logged_out=true`，由前端删除本地 token。这个实现简单、清晰，但不能让已签发 token 立即失效。
+- **Repository 返回最终状态**：更新资料后重新查一次用户，确保响应来自数据库最终状态，而不是只拼接请求体。
+
+### Java Spring Boot Comparison
+
+- `PublicUserDTO` 类似 Java 项目中给 Controller 返回的 VO，和数据库 Entity、当前用户 DTO 分离。
+- `UpdateProfile` 类似 Spring service 中的业务校验方法，Controller 不直接操作 Repository。
+- stateless JWT logout 类似 Spring Security 只清理客户端 token 的方案；如果要服务端强制失效，需要 Redis token blacklist 或 session store。
+- `UpdateProfile` 的 `RowsAffected == 0` 判断类似 MyBatis update 返回影响行数后决定是否抛 `NotFoundException`。
+
+### Key Code Paths
+
+- 更新资料：
+
+```text
+PATCH /api/users/me
+  -> account.Handler.UpdateProfile
+  -> account.Service.UpdateProfile
+  -> account.Repository.UpdateProfile
+  -> account.ToUserDTO
+```
+
+- 公开资料：
+
+```text
+GET /api/users/:userId
+  -> account.Handler.PublicProfile
+  -> account.Service.PublicProfile
+  -> account.ToPublicUserDTO
+```
+
+- 当前会话注销：
+
+```text
+DELETE /api/sessions/current
+  -> AuthRequired middleware
+  -> account.Handler.LogoutCurrentSession
+  -> { "logged_out": true }
+```
+
+### Common Pitfalls
+
+- 不要把 `UserDTO` 直接用于公开资料接口，否则会泄漏 email、role、status。
+- 不要把 logout 讲成“服务端已吊销 token”；当前 stateless JWT 只能让客户端丢弃 token。
+- 不要在 handler 里写大量业务校验，校验应在 service 层集中，便于测试和复用。
+- 不要忘记动态路由 `/users/:userId` 可能影响 `/users/me`，新增后必须跑 account 全包测试。
+
+### Verification
+
+- `go test ./internal/account -run "TestAccountRoutes(UpdateCurrentUserProfile|RejectInvalidProfileUpdate|GetPublicProfile|PublicProfileNotFound|LogoutCurrentSession)" -v` passed。
+- `go test ./internal/account -run "TestAccountRoutes(UpdateCurrentUserProfile|PatchProfileKeepsOmittedFields|RejectInvalidProfileUpdate|GetPublicProfile|PublicProfileNotFound|LogoutCurrentSession)" -v` passed。
+- `go test ./internal/account ./internal/http ./cmd/server -v` passed。
+- `go test ./...` passed。
+
+### Follow-Up
+
+- 管理后台继续补 `GET /api/admin/notes`，完善内容治理闭环。
+- 后续如接入 Redis profile cache，应在 `PATCH /api/users/me` 成功后删除 `user:profile:{id}`。

@@ -220,6 +220,51 @@
 - 公开读路径要统一条件，不要详情页一套规则、列表页另一套规则。
 - 缓存失效要跟随“真实状态变化”，重复删除这种幂等请求不需要反复删除缓存。
 
+### Stage H: Complete Account Profile Contract
+
+目标：补齐 API 文档中已经声明但未实现的账号接口，让账号模块从“能登录”升级为“有完整资料契约”。
+
+主要实现：
+
+- `account.Handler`:
+  - 新增 `DELETE /api/sessions/current`。
+  - 新增 `PATCH /api/users/me`。
+  - 新增 `GET /api/users/:userId`。
+- `account.Service`:
+  - 新增 `UpdateProfile`，支持 PATCH 部分更新，未传字段保持原值，并校验 nickname、avatar_url、bio。
+  - 新增 `PublicProfile`，只返回 active 用户的公开资料。
+- `account.Repository`:
+  - 新增 `UpdateProfile`，更新资料后重新读取用户，保证响应是数据库最终状态。
+- `account.DTO`:
+  - 新增 `PublicUserDTO`，只暴露 id、nickname、avatar_url、bio、created_at。
+
+设计取舍：
+
+- `DELETE /api/sessions/current` 当前采用 stateless JWT logout，服务端只返回 `logged_out=true`，不维护 Redis token blacklist。原因是当前项目主线是内容社区和 Feed 分发，V1 不引入刷新令牌、token 黑名单或多端会话管理，避免账号模块膨胀。
+- 公开资料接口不返回 email、role、status，避免把管理态字段暴露给匿名调用方。
+- profile cache key 已在缓存文档中约定，但读路径暂不接入 Redis；后续如果接入 `user:profile:{id}`，资料更新成功后应主动删除该 key。
+
+关键测试：
+
+- `TestAccountRoutesUpdateCurrentUserProfile`
+  - 验证登录用户可以更新 nickname、avatar_url、bio，并且 `/users/me` 返回最新值。
+- `TestAccountRoutesPatchProfileKeepsOmittedFields`
+  - 验证 PATCH 只传 bio 时，nickname 和 avatar_url 保持原值。
+- `TestAccountRoutesRejectInvalidProfileUpdate`
+  - 验证空 nickname、超长 bio 和未认证更新会被拒绝。
+- `TestAccountRoutesGetPublicProfile`
+  - 验证公开资料只包含公开字段，不泄漏 email、role、status。
+- `TestAccountRoutesPublicProfileNotFound`
+  - 验证不存在用户返回 404。
+- `TestAccountRoutesLogoutCurrentSession`
+  - 验证 logout 需要认证，并返回 `logged_out=true`。
+
+复习重点：
+
+- 简历项目里的 API contract 要和实现保持一致，尤其是账号、内容、互动这种演示必走路径。
+- 公开 DTO 和内部/current user DTO 要分开，不能为了省事复用含敏感字段的结构。
+- stateless JWT logout 只能让客户端丢弃 token，不能让已签发 token 在过期前服务端失效；面试中要主动说明这个边界。
+
 ## Implementation Notes
 
 ### Package Boundaries
@@ -275,6 +320,15 @@ if status != removed:
   update notes.status = removed
 invalidate feed first-page cache
 invalidate note detail/count cache
+```
+
+账号资料更新：
+
+```text
+PATCH /api/users/me
+  -> validate profile fields
+  -> update users.nickname/avatar_url/bio
+  -> return current user DTO
 ```
 
 ### Failure Policy

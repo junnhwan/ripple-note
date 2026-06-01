@@ -14,6 +14,7 @@ type UserRepository interface {
 	Create(ctx context.Context, user *User) (*User, error)
 	FindByEmail(ctx context.Context, email string) (*User, error)
 	FindByID(ctx context.Context, id uint64) (*User, error)
+	UpdateProfile(ctx context.Context, id uint64, nickname, avatarURL, bio string) (*User, error)
 }
 
 type GormUserRepository struct {
@@ -54,6 +55,21 @@ func (r *GormUserRepository) FindByID(ctx context.Context, id uint64) (*User, er
 		return nil, err
 	}
 	return &user, nil
+}
+
+func (r *GormUserRepository) UpdateProfile(ctx context.Context, id uint64, nickname, avatarURL, bio string) (*User, error) {
+	result := r.db.WithContext(ctx).Model(&User{}).Where("id = ?", id).Updates(map[string]any{
+		"nickname":   nickname,
+		"avatar_url": avatarURL,
+		"bio":        bio,
+	})
+	if result.Error != nil {
+		return nil, result.Error
+	}
+	if result.RowsAffected == 0 {
+		return nil, ErrUserNotFound
+	}
+	return r.FindByID(ctx, id)
 }
 
 func (r *GormUserRepository) FindByIDs(ctx context.Context, ids []uint64) (map[uint64]*User, error) {

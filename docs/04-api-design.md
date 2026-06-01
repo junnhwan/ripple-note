@@ -58,10 +58,36 @@ Error response:
 | --- | --- | --- | --- |
 | `POST` | `/api/users` | No | Register |
 | `POST` | `/api/sessions` | No | Login |
-| `DELETE` | `/api/sessions/current` | Yes | Logout |
+| `DELETE` | `/api/sessions/current` | Yes | Logout current session; V1 is stateless JWT logout and returns `logged_out=true` |
 | `GET` | `/api/users/me` | Yes | Current user |
 | `PATCH` | `/api/users/me` | Yes | Update profile |
-| `GET` | `/api/users/{userId}` | Optional | Public profile |
+| `GET` | `/api/users/{userId}` | No | Public profile |
+
+Update profile request:
+
+```json
+{
+  "nickname": "Alice",
+  "avatar_url": "/uploads/images/avatar.jpg",
+  "bio": "Go backend learner"
+}
+```
+
+`PATCH /api/users/me` supports partial updates. Omitted fields keep their current values; an explicitly blank `nickname` is rejected.
+
+Public profile response only exposes public fields:
+
+```json
+{
+  "id": 1,
+  "nickname": "Alice",
+  "avatar_url": "/uploads/images/avatar.jpg",
+  "bio": "Go backend learner",
+  "created_at": "2026-06-01T10:00:00Z"
+}
+```
+
+Public profile must not expose `email`, `role`, `status`, password hash, or token state.
 
 ## Upload APIs
 

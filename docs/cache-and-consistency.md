@@ -29,7 +29,7 @@
 | following Feed 缓存 | 不缓存 | 用户强相关，当前直接走 MySQL |
 | tag Feed 缓存 | 不缓存 | tag 组合多，当前直接走 MySQL |
 | note detail/count key | 已接入 | 匿名公开详情走 cache-aside，并同时写入计数快照 |
-| profile key | 已约定 | 已有 key helper，读路径可后续接入 |
+| profile key | 已约定 | 已有 key helper；公开资料 API 已实现，Redis 读路径可后续接入 |
 | 审核后失效 Feed 和 Note key | 已有 | admin 决策后删除 Feed 首页和 note 相关 key；后续内容分析回调复用同一规则 |
 | 互动后失效 Note key | 已有 | like/favorite/comment 后删除 note detail/count key |
 
@@ -212,6 +212,13 @@ user:profile:{id}
 ```
 
 Feed 中作者信息可以接受短时间旧值，但资料页应优先删除后重建。
+
+当前实现说明：
+
+- `GET /api/users/{userId}` 已只返回 `PublicUserDTO`，不会暴露 email、role、status、password hash 或 token state。
+- `PATCH /api/users/me` 已更新 nickname、avatar_url、bio。
+- Redis profile cache 尚未接入读路径，因此当前资料更新不需要实际删除 Redis key；后续接入 `user:profile:{id}` 后，应在更新资料成功后主动删除该 key。
+- `DELETE /api/sessions/current` 是 stateless JWT logout，服务端不缓存 token 黑名单；前端应删除本地 token。
 
 ## Cache-Aside Flow
 

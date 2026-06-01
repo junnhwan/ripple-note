@@ -123,6 +123,173 @@ func TestAccountRoutesRequireBearerTokenForCurrentUser(t *testing.T) {
 	}
 }
 
+func TestAccountRoutesUpdateCurrentUserProfile(t *testing.T) {
+	t.Parallel()
+
+	router := newAccountTestRouter(t)
+	token := registerAndLogin(t, router, "profile@example.com", "secret123", "Profile")
+
+	update := patchJSON(t, router, "/api/users/me", map[string]any{
+		"nickname":   "Updated Profile",
+		"avatar_url": "/uploads/images/avatar.jpg",
+		"bio":        "Go backend learner",
+	}, "Bearer "+token)
+	if update.Status != http.StatusOK {
+		t.Fatalf("expected update status 200, got %d: %#v", update.Status, update.Error)
+	}
+
+	updated := decodeData[account.UserDTO](t, update.Data)
+	if updated.Nickname != "Updated Profile" {
+		t.Fatalf("expected updated nickname, got %q", updated.Nickname)
+	}
+	if updated.AvatarURL != "/uploads/images/avatar.jpg" {
+		t.Fatalf("expected updated avatar url, got %q", updated.AvatarURL)
+	}
+	if updated.Bio != "Go backend learner" {
+		t.Fatalf("expected updated bio, got %q", updated.Bio)
+	}
+
+	current := decodeData[account.UserDTO](t, getJSON(t, router, "/api/users/me", "Bearer "+token).Data)
+	if current.Nickname != updated.Nickname || current.AvatarURL != updated.AvatarURL || current.Bio != updated.Bio {
+		t.Fatalf("expected current user to reflect profile update, got %#v", current)
+	}
+}
+
+func TestAccountRoutesPatchProfileKeepsOmittedFields(t *testing.T) {
+	t.Parallel()
+
+	router := newAccountTestRouter(t)
+	token := registerAndLogin(t, router, "partial-profile@example.com", "secret123", "Partial")
+
+	fullUpdate := patchJSON(t, router, "/api/users/me", map[string]any{
+		"nickname":   "Partial One",
+		"avatar_url": "/uploads/images/partial-one.jpg",
+		"bio":        "first bio",
+	}, "Bearer "+token)
+	if fullUpdate.Status != http.StatusOK {
+		t.Fatalf("expected initial update status 200, got %d: %#v", fullUpdate.Status, fullUpdate.Error)
+	}
+
+	partialUpdate := patchJSON(t, router, "/api/users/me", map[string]any{
+		"bio": "second bio",
+	}, "Bearer "+token)
+	if partialUpdate.Status != http.StatusOK {
+		t.Fatalf("expected partial update status 200, got %d: %#v", partialUpdate.Status, partialUpdate.Error)
+	}
+
+	updated := decodeData[account.UserDTO](t, partialUpdate.Data)
+	if updated.Nickname != "Partial One" {
+		t.Fatalf("expected omitted nickname to stay unchanged, got %q", updated.Nickname)
+	}
+	if updated.AvatarURL != "/uploads/images/partial-one.jpg" {
+		t.Fatalf("expected omitted avatar to stay unchanged, got %q", updated.AvatarURL)
+	}
+	if updated.Bio != "second bio" {
+		t.Fatalf("expected bio to change, got %q", updated.Bio)
+	}
+}
+
+func TestAccountRoutesRejectInvalidProfileUpdate(t *testing.T) {
+	t.Parallel()
+
+	router := newAccountTestRouter(t)
+	token := registerAndLogin(t, router, "invalid-profile@example.com", "secret123", "InvalidProfile")
+
+	emptyNickname := patchJSON(t, router, "/api/users/me", map[string]any{
+		"nickname": " ",
+	}, "Bearer "+token)
+	if emptyNickname.Status != http.StatusBadRequest {
+		t.Fatalf("expected empty nickname status 400, got %d", emptyNickname.Status)
+	}
+
+	longBio := strings.Repeat("a", 513)
+	tooLongBio := patchJSON(t, router, "/api/users/me", map[string]any{
+		"bio": longBio,
+	}, "Bearer "+token)
+	if tooLongBio.Status != http.StatusBadRequest {
+		t.Fatalf("expected too long bio status 400, got %d", tooLongBio.Status)
+	}
+
+	noAuth := patchJSON(t, router, "/api/users/me", map[string]any{
+		"nickname": "NoAuth",
+	}, "")
+	if noAuth.Status != http.StatusUnauthorized {
+		t.Fatalf("expected no auth status 401, got %d", noAuth.Status)
+	}
+}
+
+func TestAccountRoutesGetPublicProfile(t *testing.T) {
+	t.Parallel()
+
+	router := newAccountTestRouter(t)
+	token := registerAndLogin(t, router, "public-profile@example.com", "secret123", "PublicProfile")
+
+	patchJSON(t, router, "/api/users/me", map[string]any{
+		"nickname":   "Public Name",
+		"avatar_url": "/uploads/images/public-avatar.jpg",
+		"bio":        "Public bio",
+	}, "Bearer "+token)
+
+	resp := getJSON(t, router, "/api/users/1", "")
+	if resp.Status != http.StatusOK {
+		t.Fatalf("expected public profile status 200, got %d: %#v", resp.Status, resp.Error)
+	}
+
+	profile := decodeData[account.PublicUserDTO](t, resp.Data)
+	if profile.ID != 1 {
+		t.Fatalf("expected public profile id 1, got %d", profile.ID)
+	}
+	if profile.Nickname != "Public Name" {
+		t.Fatalf("expected public nickname, got %q", profile.Nickname)
+	}
+	if profile.AvatarURL != "/uploads/images/public-avatar.jpg" {
+		t.Fatalf("expected public avatar url, got %q", profile.AvatarURL)
+	}
+	if profile.Bio != "Public bio" {
+		t.Fatalf("expected public bio, got %q", profile.Bio)
+	}
+
+	raw := string(resp.Data)
+	for _, forbiddenField := range []string{"email", "role", "status"} {
+		if strings.Contains(raw, forbiddenField) {
+			t.Fatalf("public profile leaked %s in %s", forbiddenField, raw)
+		}
+	}
+}
+
+func TestAccountRoutesPublicProfileNotFound(t *testing.T) {
+	t.Parallel()
+
+	router := newAccountTestRouter(t)
+
+	resp := getJSON(t, router, "/api/users/404", "")
+	if resp.Status != http.StatusNotFound {
+		t.Fatalf("expected public profile status 404, got %d", resp.Status)
+	}
+}
+
+func TestAccountRoutesLogoutCurrentSession(t *testing.T) {
+	t.Parallel()
+
+	router := newAccountTestRouter(t)
+	token := registerAndLogin(t, router, "logout@example.com", "secret123", "Logout")
+
+	resp := deleteJSON(t, router, "/api/sessions/current", "Bearer "+token)
+	if resp.Status != http.StatusOK {
+		t.Fatalf("expected logout status 200, got %d: %#v", resp.Status, resp.Error)
+	}
+
+	data := decodeData[map[string]bool](t, resp.Data)
+	if !data["logged_out"] {
+		t.Fatalf("expected logged_out=true, got %#v", data)
+	}
+
+	noAuth := deleteJSON(t, router, "/api/sessions/current", "")
+	if noAuth.Status != http.StatusUnauthorized {
+		t.Fatalf("expected no auth logout status 401, got %d", noAuth.Status)
+	}
+}
+
 func newAccountTestRouter(t *testing.T) http.Handler {
 	t.Helper()
 
@@ -153,6 +320,32 @@ func newAccountTestRouter(t *testing.T) http.Handler {
 	})
 }
 
+func registerAndLogin(t *testing.T, handler http.Handler, email, password, nickname string) string {
+	t.Helper()
+
+	resp := postJSON(t, handler, "/api/users", map[string]any{
+		"email":    email,
+		"password": password,
+		"nickname": nickname,
+	}, "")
+	if resp.Status != http.StatusCreated {
+		t.Fatalf("register: expected 201, got %d: %#v", resp.Status, resp.Error)
+	}
+
+	resp = postJSON(t, handler, "/api/sessions", map[string]any{
+		"email":    email,
+		"password": password,
+	}, "")
+	if resp.Status != http.StatusOK {
+		t.Fatalf("login: expected 200, got %d: %#v", resp.Status, resp.Error)
+	}
+	session := decodeData[account.SessionDTO](t, resp.Data)
+	if session.Token == "" {
+		t.Fatal("expected login token")
+	}
+	return session.Token
+}
+
 type apiTestResponse struct {
 	Status int
 	Data   json.RawMessage `json:"data"`
@@ -179,10 +372,36 @@ func postJSON(t *testing.T, handler http.Handler, path string, payload any, auth
 	return doJSON(t, handler, request)
 }
 
+func patchJSON(t *testing.T, handler http.Handler, path string, payload any, authorization string) apiTestResponse {
+	t.Helper()
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal request payload: %v", err)
+	}
+
+	request := httptest.NewRequest(http.MethodPatch, path, bytes.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	if authorization != "" {
+		request.Header.Set("Authorization", authorization)
+	}
+	return doJSON(t, handler, request)
+}
+
 func getJSON(t *testing.T, handler http.Handler, path string, authorization string) apiTestResponse {
 	t.Helper()
 
 	request := httptest.NewRequest(http.MethodGet, path, nil)
+	if authorization != "" {
+		request.Header.Set("Authorization", authorization)
+	}
+	return doJSON(t, handler, request)
+}
+
+func deleteJSON(t *testing.T, handler http.Handler, path string, authorization string) apiTestResponse {
+	t.Helper()
+
+	request := httptest.NewRequest(http.MethodDelete, path, nil)
 	if authorization != "" {
 		request.Header.Set("Authorization", authorization)
 	}

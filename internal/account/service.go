@@ -28,6 +28,12 @@ type LoginInput struct {
 	Password string
 }
 
+type UpdateProfileInput struct {
+	Nickname  *string
+	AvatarURL *string
+	Bio       *string
+}
+
 type Service struct {
 	users  UserRepository
 	hashes auth.PasswordHasher
@@ -124,6 +130,63 @@ func (s *Service) CurrentUser(ctx context.Context, userID uint64) (UserDTO, erro
 		return UserDTO{}, ErrUserDisabled
 	}
 	return ToUserDTO(user), nil
+}
+
+func (s *Service) PublicProfile(ctx context.Context, userID uint64) (PublicUserDTO, error) {
+	user, err := s.users.FindByID(ctx, userID)
+	if err != nil {
+		return PublicUserDTO{}, err
+	}
+	if user.Status != StatusActive {
+		return PublicUserDTO{}, ErrUserNotFound
+	}
+	return ToPublicUserDTO(user), nil
+}
+
+func (s *Service) UpdateProfile(ctx context.Context, userID uint64, input UpdateProfileInput) (UserDTO, error) {
+	user, err := s.users.FindByID(ctx, userID)
+	if err != nil {
+		return UserDTO{}, err
+	}
+	if user.Status != StatusActive {
+		return UserDTO{}, ErrUserDisabled
+	}
+
+	nickname := user.Nickname
+	if input.Nickname != nil {
+		nickname = strings.TrimSpace(*input.Nickname)
+		if nickname == "" {
+			return UserDTO{}, fmt.Errorf("%w: nickname is required", ErrInvalidInput)
+		}
+		if len([]rune(nickname)) > 64 {
+			return UserDTO{}, fmt.Errorf("%w: nickname must be at most 64 characters", ErrInvalidInput)
+		}
+	}
+
+	avatarURL := user.AvatarURL
+	if input.AvatarURL != nil {
+		avatarURL = strings.TrimSpace(*input.AvatarURL)
+		if len(avatarURL) > 512 {
+			return UserDTO{}, fmt.Errorf("%w: avatar url must be at most 512 characters", ErrInvalidInput)
+		}
+	}
+
+	bio := user.Bio
+	if input.Bio != nil {
+		bio = strings.TrimSpace(*input.Bio)
+		if len([]rune(bio)) > 512 {
+			return UserDTO{}, fmt.Errorf("%w: bio must be at most 512 characters", ErrInvalidInput)
+		}
+	}
+
+	updated, err := s.users.UpdateProfile(ctx, userID, nickname, avatarURL, bio)
+	if err != nil {
+		return UserDTO{}, err
+	}
+	if updated.Status != StatusActive {
+		return UserDTO{}, ErrUserDisabled
+	}
+	return ToUserDTO(updated), nil
 }
 
 func validateEmail(value string) (string, error) {

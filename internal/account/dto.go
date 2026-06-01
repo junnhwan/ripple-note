@@ -13,6 +13,14 @@ type UserDTO struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+type PublicUserDTO struct {
+	ID        uint64    `json:"id"`
+	Nickname  string    `json:"nickname"`
+	AvatarURL string    `json:"avatar_url"`
+	Bio       string    `json:"bio"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
 type SessionDTO struct {
 	Token string  `json:"token"`
 	User  UserDTO `json:"user"`
@@ -27,6 +35,16 @@ func ToUserDTO(user *User) UserDTO {
 		Bio:       user.Bio,
 		Role:      user.Role,
 		Status:    user.Status,
+		CreatedAt: user.CreatedAt,
+	}
+}
+
+func ToPublicUserDTO(user *User) PublicUserDTO {
+	return PublicUserDTO{
+		ID:        user.ID,
+		Nickname:  user.Nickname,
+		AvatarURL: user.AvatarURL,
+		Bio:       user.Bio,
 		CreatedAt: user.CreatedAt,
 	}
 }

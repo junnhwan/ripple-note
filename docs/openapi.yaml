@@ -87,6 +87,29 @@ paths:
           $ref: "#/components/responses/Error"
         "401":
           $ref: "#/components/responses/Error"
+  /api/sessions/current:
+    delete:
+      summary: Logout current session
+      description: |
+        注销当前会话。V1 使用 stateless JWT，服务端不维护 token blacklist，
+        成功响应表示客户端应删除本地 token。
+      operationId: logoutCurrentSession
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Logout acknowledged
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessResponse"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/LogoutResult"
+        "401":
+          $ref: "#/components/responses/Error"
   /api/users/me:
     get:
       summary: Current user
@@ -107,6 +130,63 @@ paths:
                       data:
                         $ref: "#/components/schemas/User"
         "401":
+          $ref: "#/components/responses/Error"
+    patch:
+      summary: Update current user profile
+      description: 更新当前用户公开资料。该接口是 PATCH 语义，未传字段保持原值。
+      operationId: updateCurrentUserProfile
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateProfileRequest"
+      responses:
+        "200":
+          description: Profile updated
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessResponse"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/User"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+  /api/users/{userId}:
+    get:
+      summary: Public user profile
+      description: 返回用户公开资料，不包含 email、role、status、password hash 或 token state。
+      operationId: getPublicUserProfile
+      parameters:
+        - in: path
+          name: userId
+          required: true
+          schema:
+            type: integer
+            format: int64
+            minimum: 1
+      responses:
+        "200":
+          description: Public user profile
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessResponse"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/PublicUser"
+        "400":
+          $ref: "#/components/responses/Error"
+        "404":
           $ref: "#/components/responses/Error"
 components:
   securitySchemes:
@@ -202,6 +282,22 @@ components:
         password:
           type: string
           example: secret123
+    UpdateProfileRequest:
+      type: object
+      properties:
+        nickname:
+          type: string
+          minLength: 1
+          maxLength: 64
+          example: Alice
+        avatar_url:
+          type: string
+          maxLength: 512
+          example: /uploads/images/avatar.jpg
+        bio:
+          type: string
+          maxLength: 512
+          example: Go backend learner
     User:
       type: object
       required:
@@ -242,6 +338,39 @@ components:
         created_at:
           type: string
           format: date-time
+    PublicUser:
+      type: object
+      required:
+        - id
+        - nickname
+        - avatar_url
+        - bio
+        - created_at
+      properties:
+        id:
+          type: integer
+          format: int64
+          example: 1
+        nickname:
+          type: string
+          example: Alice
+        avatar_url:
+          type: string
+          example: /uploads/images/avatar.jpg
+        bio:
+          type: string
+          example: Go backend learner
+        created_at:
+          type: string
+          format: date-time
+    LogoutResult:
+      type: object
+      required:
+        - logged_out
+      properties:
+        logged_out:
+          type: boolean
+          example: true
     Session:
       type: object
       required:

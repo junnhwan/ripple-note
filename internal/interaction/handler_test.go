@@ -135,6 +135,95 @@ func TestCommentAndList(t *testing.T) {
 	}
 }
 
+func TestDeleteCommentIdempotentForAuthor(t *testing.T) {
+	t.Parallel()
+
+	router, db := newInteractionTestRouter(t)
+	token := publishApprovedNote(t, router, db, "delete-comment@example.com", "Delete Comment Note")
+
+	resp := postJSON(t, router, "/api/notes/1/comments", map[string]any{
+		"body": "Remove this comment",
+	}, "Bearer "+token)
+	if resp.Status != http.StatusCreated {
+		t.Fatalf("comment: expected 201, got %d: %s", resp.Status, string(resp.RawBody))
+	}
+	var created struct {
+		Data struct {
+			ID uint64 `json:"id"`
+		} `json:"data"`
+	}
+	_ = json.Unmarshal(resp.RawBody, &created)
+	if created.Data.ID == 0 {
+		t.Fatal("expected created comment id")
+	}
+
+	resp = reqMethod(t, router, http.MethodDelete, fmt.Sprintf("/api/comments/%d", created.Data.ID), nil, "Bearer "+token)
+	if resp.Status != http.StatusOK {
+		t.Fatalf("delete comment: expected 200, got %d: %s", resp.Status, string(resp.RawBody))
+	}
+
+	var body struct {
+		Data struct {
+			Deleted bool `json:"deleted"`
+		} `json:"data"`
+	}
+	_ = json.Unmarshal(resp.RawBody, &body)
+	if !body.Data.Deleted {
+		t.Fatal("expected deleted=true on first delete")
+	}
+
+	var n note.Note
+	db.First(&n, 1)
+	if n.CommentsCount != 0 {
+		t.Fatalf("expected comments_count=0, got %d", n.CommentsCount)
+	}
+
+	resp = reqMethod(t, router, http.MethodDelete, fmt.Sprintf("/api/comments/%d", created.Data.ID), nil, "Bearer "+token)
+	if resp.Status != http.StatusOK {
+		t.Fatalf("duplicate delete: expected 200, got %d: %s", resp.Status, string(resp.RawBody))
+	}
+	_ = json.Unmarshal(resp.RawBody, &body)
+	if body.Data.Deleted {
+		t.Fatal("expected deleted=false on duplicate delete")
+	}
+	db.First(&n, 1)
+	if n.CommentsCount != 0 {
+		t.Fatalf("expected comments_count to stay 0, got %d", n.CommentsCount)
+	}
+}
+
+func TestDeleteCommentRejectsNonAuthor(t *testing.T) {
+	t.Parallel()
+
+	router, db := newInteractionTestRouter(t)
+	authorToken := publishApprovedNote(t, router, db, "comment-owner@example.com", "Owner Comment Note")
+	otherToken := registerAndLogin(t, router, "comment-other@example.com", "secret123", "Other")
+
+	resp := postJSON(t, router, "/api/notes/1/comments", map[string]any{
+		"body": "Owned comment",
+	}, "Bearer "+authorToken)
+	if resp.Status != http.StatusCreated {
+		t.Fatalf("comment: expected 201, got %d: %s", resp.Status, string(resp.RawBody))
+	}
+	var created struct {
+		Data struct {
+			ID uint64 `json:"id"`
+		} `json:"data"`
+	}
+	_ = json.Unmarshal(resp.RawBody, &created)
+
+	resp = reqMethod(t, router, http.MethodDelete, fmt.Sprintf("/api/comments/%d", created.Data.ID), nil, "Bearer "+otherToken)
+	if resp.Status != http.StatusForbidden {
+		t.Fatalf("delete other user's comment: expected 403, got %d: %s", resp.Status, string(resp.RawBody))
+	}
+
+	var n note.Note
+	db.First(&n, 1)
+	if n.CommentsCount != 1 {
+		t.Fatalf("expected comments_count=1 after forbidden delete, got %d", n.CommentsCount)
+	}
+}
+
 func TestFollowUnfollowIdempotent(t *testing.T) {
 	t.Parallel()
 

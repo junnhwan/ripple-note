@@ -14,6 +14,7 @@ var ErrNoteNotFound = errors.New("note not found")
 
 // ErrNoteNotAvailable means the note exists but is not in a published+public state.
 var ErrNoteNotAvailable = errors.New("note is not available for interaction")
+var ErrCommentForbidden = errors.New("comment does not belong to user")
 
 type Repository struct {
 	db     *gorm.DB
@@ -243,6 +244,46 @@ func (r *Repository) ListComments(ctx context.Context, noteID uint64, limit, off
 		return nil, 0, err
 	}
 	return comments, total, nil
+}
+
+func (r *Repository) DeleteComment(ctx context.Context, authorID, commentID uint64) (bool, uint64, error) {
+	var removed bool
+	var noteID uint64
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var comment Comment
+		err := tx.First(&comment, commentID).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if comment.AuthorID != authorID {
+			return ErrCommentForbidden
+		}
+
+		result := tx.Delete(&comment)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return nil
+		}
+
+		removed = true
+		noteID = comment.NoteID
+		if err := tx.Model(&note.Note{}).Where("id = ? AND comments_count > 0", comment.NoteID).
+			Update("comments_count", gorm.Expr("comments_count - 1")).Error; err != nil {
+			return err
+		}
+		return r.createInteractionEvent(ctx, tx, outbox.TopicInteractionRemoved, "comment", comment.ID, map[string]any{
+			"note_id":    comment.NoteID,
+			"user_id":    comment.AuthorID,
+			"comment_id": comment.ID,
+			"action":     "delete_comment",
+		})
+	})
+	return removed, noteID, err
 }
 
 func (r *Repository) UpsertFollow(ctx context.Context, followerID, followeeID uint64) (bool, error) {

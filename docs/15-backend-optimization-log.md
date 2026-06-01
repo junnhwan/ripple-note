@@ -136,6 +136,40 @@
 - 压测结果要注明部署环境和限制，不能宣称为生产 SLA。
 - 没跑过的场景可以补脚本和模板，但不能补数字。
 
+### Stage F: Complete Comment Deletion Interaction Flow
+
+目标：补齐 API 文档中已经声明的 `DELETE /api/comments/{commentId}`，让评论互动闭环完整，并让 `interaction.removed` 覆盖删除评论场景。
+
+主要实现：
+
+- `interaction.Repository.DeleteComment`:
+  - 只允许评论作者删除自己的评论。
+  - 使用 GORM soft delete 删除评论。
+  - 在同一事务内减少 `notes.comments_count`。
+  - 在同一事务内写入 `interaction.removed`，`aggregate_type = comment`，`action = delete_comment`。
+- `interaction.Handler.DeleteComment`:
+  - 新增 `DELETE /api/comments/:commentId`。
+  - 非作者删除返回 `403 forbidden`。
+  - 删除成功后主动失效对应 note cache。
+  - 重复删除返回 `deleted=false`，保持幂等。
+
+关键测试：
+
+- `TestRepositoryCreatesOutboxEventOnlyWhenCommentDeleted`
+  - 验证首次删除评论写 `interaction.removed`。
+  - 验证重复删除不重复产事件。
+- `TestDeleteCommentIdempotentForAuthor`
+  - 验证作者删除评论后 `comments_count` 减少。
+  - 验证重复删除不会把计数减成负数。
+- `TestDeleteCommentRejectsNonAuthor`
+  - 验证非作者不能删除评论，计数不变。
+
+复习重点：
+
+- 评论删除和点赞/收藏取消一样，都属于“状态真实变化才产事件”。
+- 软删除场景下，第二次删除查不到未删除记录，因此应该幂等返回，而不是继续扣计数。
+- 写路径里的缓存失效应该在事务成功后执行，避免业务回滚但缓存先被删造成无意义抖动。
+
 ## Implementation Notes
 
 ### Package Boundaries

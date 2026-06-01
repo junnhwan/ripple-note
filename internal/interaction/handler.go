@@ -19,8 +19,8 @@ type NoteCacheInvalidator interface {
 }
 
 type Handler struct {
-	repo     *Repository
-	cache    NoteCacheInvalidator
+	repo  *Repository
+	cache NoteCacheInvalidator
 }
 
 func NewHandler(repo *Repository, cache ...NoteCacheInvalidator) *Handler {
@@ -38,6 +38,7 @@ func (h *Handler) RegisterRoutes(router gin.IRouter, requireAuth gin.HandlerFunc
 	router.DELETE("/notes/:noteId/favorite", requireAuth, h.Unfavorite)
 	router.POST("/notes/:noteId/comments", requireAuth, h.CreateComment)
 	router.GET("/notes/:noteId/comments", h.ListComments)
+	router.DELETE("/comments/:commentId", requireAuth, h.DeleteComment)
 	router.PUT("/users/me/following/:targetUserId", requireAuth, h.Follow)
 	router.DELETE("/users/me/following/:targetUserId", requireAuth, h.Unfollow)
 }
@@ -221,6 +222,28 @@ func (h *Handler) ListComments(c *gin.Context) {
 	httpapi.OK(c, CommentListDTO{Items: items, Total: total})
 }
 
+func (h *Handler) DeleteComment(c *gin.Context) {
+	commentID, err := parseCommentID(c.Param("commentId"))
+	if err != nil {
+		httpapi.Error(c, http.StatusBadRequest, "invalid_comment_id", "comment id must be a positive integer")
+		return
+	}
+	claims, _ := middleware.AuthClaimsFromContext(c)
+	removed, noteID, err := h.repo.DeleteComment(c.Request.Context(), claims.UserID, commentID)
+	if err != nil {
+		if errors.Is(err, ErrCommentForbidden) {
+			httpapi.Error(c, http.StatusForbidden, "forbidden", "cannot delete another user's comment")
+			return
+		}
+		httpapi.Error(c, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
+	if removed && noteID != 0 {
+		h.invalidateNote(c.Request.Context(), noteID)
+	}
+	httpapi.OK(c, gin.H{"deleted": removed})
+}
+
 func (h *Handler) Follow(c *gin.Context) {
 	targetID, err := parseUserID(c.Param("targetUserId"))
 	if err != nil {
@@ -272,6 +295,14 @@ func parseUserID(raw string) (uint64, error) {
 	id, err := strconv.ParseUint(raw, 10, 64)
 	if err != nil || id == 0 {
 		return 0, errors.New("invalid user id")
+	}
+	return id, nil
+}
+
+func parseCommentID(raw string) (uint64, error) {
+	id, err := strconv.ParseUint(raw, 10, 64)
+	if err != nil || id == 0 {
+		return 0, errors.New("invalid comment id")
 	}
 	return id, nil
 }

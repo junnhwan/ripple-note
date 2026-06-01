@@ -257,6 +257,26 @@ real_ttl = base_ttl + random(0, base_ttl * 20%)
 
 Feed 首页 TTL 很短，也可以保持固定 30s，便于压测和观察。
 
+### Comment Deletion Consistency
+
+删除评论属于互动写路径的一部分：
+
+```text
+delete own comment transaction
+  -> soft delete comments row
+  -> decrement notes.comments_count when > 0
+  -> insert outbox_events(topic = interaction.removed, action = delete_comment)
+commit
+delete note:counts:{note_id}
+delete note:detail:{note_id}
+```
+
+约束：
+
+- 只有评论作者可以删除自己的评论。
+- 重复删除保持幂等，不重复减少 `comments_count`，不重复写 outbox event。
+- 非作者删除返回 `403 forbidden`，不改变计数。
+
 ## Hot Feed Evolution
 
 当前 hot Feed 可以先使用 MySQL：

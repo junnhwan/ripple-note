@@ -183,6 +183,54 @@ func TestRepositoryCreatesOutboxEventsForFavoriteCommentAndFollow(t *testing.T) 
 	})
 }
 
+func TestRepositoryCreatesOutboxEventOnlyWhenCommentDeleted(t *testing.T) {
+	t.Parallel()
+
+	db := newInteractionTestDB(t)
+	repo := interaction.NewRepository(db, outbox.NewHelper(outbox.NewRepository(db)))
+	createPublishedNote(t, db, 30, 300)
+
+	comment, err := repo.CreateComment(t.Context(), &interaction.Comment{
+		NoteID:   30,
+		AuthorID: 301,
+		Body:     "remove me",
+		Status:   interaction.CommentStatusVisible,
+	})
+	if err != nil {
+		t.Fatalf("create comment: %v", err)
+	}
+	assertOutboxCount(t, db, 1)
+
+	removed, noteID, err := repo.DeleteComment(t.Context(), 301, comment.ID)
+	if err != nil {
+		t.Fatalf("delete comment: %v", err)
+	}
+	if !removed {
+		t.Fatal("expected comment to be removed")
+	}
+	if noteID != 30 {
+		t.Fatalf("expected note id 30, got %d", noteID)
+	}
+	assertOutboxEvent(t, db, 2, outbox.TopicInteractionRemoved, "comment", comment.ID, map[string]any{
+		"note_id":    float64(30),
+		"user_id":    float64(301),
+		"comment_id": float64(comment.ID),
+		"action":     "delete_comment",
+	})
+
+	removed, noteID, err = repo.DeleteComment(t.Context(), 301, comment.ID)
+	if err != nil {
+		t.Fatalf("delete duplicate comment: %v", err)
+	}
+	if removed {
+		t.Fatal("expected duplicate delete to be idempotent")
+	}
+	if noteID != 0 {
+		t.Fatalf("expected no note id for duplicate delete, got %d", noteID)
+	}
+	assertOutboxCount(t, db, 2)
+}
+
 func newInteractionTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 

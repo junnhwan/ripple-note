@@ -791,3 +791,40 @@ Browser can complete: Register → Login → Publish Note → Admin Review → F
   - `.\scripts\loadtest\run-k6.ps1 -Scenario latest-auth -Vus 50 -Duration 2m -Sleep 0`
   - `.\scripts\loadtest\run-k6.ps1 -Scenario mixed -Vus 100 -Duration 2m -Sleep 0`
 - 补跑 Redis disabled 配置，与 Redis enabled 做匿名首页对比。
+
+## 2026-06-01 Optimization Stage F: Complete Comment Deletion Flow
+
+### Stage Goal
+
+补齐 API 文档中已经声明的 `DELETE /api/comments/{commentId}`，完善评论互动闭环，并让 `interaction.removed` 覆盖删除评论场景。
+
+### Files Modified
+
+- `internal/interaction/repository.go`: 新增 `DeleteComment`，在事务内 soft delete 评论、减少 `comments_count`、写 `interaction.removed`。
+- `internal/interaction/handler.go`: 新增 `DELETE /api/comments/:commentId` 路由和 handler。
+- `internal/interaction/repository_test.go`: 覆盖删除评论 outbox 事件和幂等行为。
+- `internal/interaction/handler_test.go`: 覆盖作者删除、重复删除、非作者禁止删除。
+- `docs/events-and-outbox.md`: 更新 `interaction.removed` 当前状态和删除评论 payload。
+- `docs/cache-and-consistency.md`: 增加删除评论一致性规则。
+- `docs/15-backend-optimization-log.md`: 追加 Stage F 复盘。
+
+### Go Backend Notes
+
+- **软删除幂等**：GORM 默认查询不返回 soft-deleted row，因此重复删除会查不到评论，应返回 `deleted=false`，不能继续扣计数。
+- **权限检查在事务内**：先查当前未删除评论，再校验 `author_id`，非作者返回 `403`，不做任何写入。
+- **事件生产条件**：只有首次真实删除写 `interaction.removed`，重复删除不写事件，避免通知、热榜、统计 consumer 重复处理。
+- **缓存失效时机**：handler 只在 repository 事务成功且 `removed=true` 后失效 note cache。
+
+### Java Spring Boot Comparison
+
+- `DeleteComment` 类似 Spring `@Transactional` service 方法：查评论、校验作者、软删除、更新计数、写 outbox 都在一个事务里。
+- GORM soft delete 类似 JPA `@SQLDelete + @Where` 或 MyBatis-Plus 逻辑删除。
+- 显式返回 `(removed, noteID, error)` 类似 Java 中返回一个 result DTO，便于 handler 判断是否需要失效缓存。
+
+### Verification
+
+- `go test ./internal/interaction -run "TestRepositoryCreatesOutboxEventOnlyWhenCommentDeleted|TestDeleteComment" -v` passed。
+
+### Follow-Up
+
+- 可以继续补 `GET /api/users/{userId}/notes`、`DELETE /api/notes/{noteId}` 等 API 文档中声明但尚未实现的接口，进一步减少文档和代码偏差。

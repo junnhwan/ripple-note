@@ -240,10 +240,10 @@ Payload:
 
 | 字段 | 内容 |
 | --- | --- |
-| Producer | unlike/unfavorite/unfollow |
+| Producer | unlike/unfavorite/delete comment/unfollow |
 | Aggregate | `note`、`comment` 或 `follow` |
 | Timing | 互动取消事务成功后 |
-| Current status | 已实现 unlike/unfavorite/unfollow，删除评论待补 |
+| Current status | 已实现 unlike/unfavorite/delete comment/unfollow |
 | Consumers | count cache、hot ranking、notification cleanup、audit |
 
 Payload:
@@ -255,6 +255,8 @@ Payload:
   "action": "unlike"
 }
 ```
+
+删除评论时 aggregate 为 `comment`，payload 额外包含 `comment_id`，`action = "delete_comment"`。
 
 ### `follow.created` / `follow.removed`
 

@@ -91,6 +91,34 @@ func (r *Repository) FindTagNamesByNoteID(ctx context.Context, noteID uint64) ([
 	return names, err
 }
 
+func (r *Repository) FindTagNamesByNoteIDs(ctx context.Context, noteIDs []uint64) (map[uint64][]string, error) {
+	if len(noteIDs) == 0 {
+		return map[uint64][]string{}, nil
+	}
+
+	type row struct {
+		NoteID uint64
+		Name   string
+	}
+	var rows []row
+	err := r.db.WithContext(ctx).
+		Table("note_tags").
+		Select("note_tags.note_id, tags.name").
+		Joins("JOIN tags ON tags.id = note_tags.tag_id").
+		Where("note_tags.note_id IN ?", uniqueUint64s(noteIDs)).
+		Order("note_tags.note_id ASC, tags.name ASC").
+		Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+
+	byNoteID := make(map[uint64][]string, len(noteIDs))
+	for _, row := range rows {
+		byNoteID[row.NoteID] = append(byNoteID[row.NoteID], row.Name)
+	}
+	return byNoteID, nil
+}
+
 func (r *Repository) CreateNoteImages(ctx context.Context, tx *gorm.DB, images []*NoteImage) error {
 	if len(images) == 0 {
 		return nil
@@ -102,6 +130,27 @@ func (r *Repository) FindImagesByNoteID(ctx context.Context, noteID uint64) ([]*
 	var images []*NoteImage
 	err := r.db.WithContext(ctx).Where("note_id = ?", noteID).Order("sort_order").Find(&images).Error
 	return images, err
+}
+
+func (r *Repository) FindImagesByNoteIDs(ctx context.Context, noteIDs []uint64) (map[uint64][]*NoteImage, error) {
+	if len(noteIDs) == 0 {
+		return map[uint64][]*NoteImage{}, nil
+	}
+
+	var images []*NoteImage
+	err := r.db.WithContext(ctx).
+		Where("note_id IN ?", uniqueUint64s(noteIDs)).
+		Order("note_id ASC, sort_order ASC, id ASC").
+		Find(&images).Error
+	if err != nil {
+		return nil, err
+	}
+
+	byNoteID := make(map[uint64][]*NoteImage, len(noteIDs))
+	for _, image := range images {
+		byNoteID[image.NoteID] = append(byNoteID[image.NoteID], image)
+	}
+	return byNoteID, nil
 }
 
 func (r *Repository) UpdateNoteStatus(ctx context.Context, tx *gorm.DB, noteID uint64, status string, publishedAt *time.Time) error {
@@ -136,4 +185,20 @@ func d(db, tx *gorm.DB) *gorm.DB {
 		return tx
 	}
 	return db
+}
+
+func uniqueUint64s(ids []uint64) []uint64 {
+	unique := make([]uint64, 0, len(ids))
+	seen := make(map[uint64]struct{}, len(ids))
+	for _, id := range ids {
+		if id == 0 {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		unique = append(unique, id)
+	}
+	return unique
 }

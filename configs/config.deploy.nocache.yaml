@@ -1,0 +1,41 @@
+app:
+  name: ripple-note
+  env: deploy
+
+http:
+  port: 8080
+  read_timeout: 5s
+  write_timeout: 10s
+
+log:
+  level: info
+
+mysql:
+  enabled: true
+  dsn: "root:ripple_note_dev_pass@tcp(mysql:3306)/ripple_note?charset=utf8mb4&parseTime=True&loc=Local"
+  max_open_connections: 80
+  max_idle_connections: 40
+  connection_max_lifetime: 1h
+
+auth:
+  jwt_secret: "ripple-note-deploy-demo-jwt-secret-change-before-production"
+  jwt_issuer: "ripple-note"
+  jwt_ttl: 24h
+
+review:
+  internal_token: "ripple-note-deploy-demo-internal-token"
+
+upload:
+  image_dir: "/app/uploads/images"
+  max_image_size: 5242880
+
+redis:
+  enabled: false
+  addr: "redis:6379"
+  password: ""
+  db: 0
+
+rabbitmq:
+  enabled: true
+  dsn: "amqp://guest:guest@rabbitmq:5672/"
+  exchange: "ripple-note-events"

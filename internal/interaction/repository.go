@@ -221,6 +221,22 @@ func (r *Repository) HasLiked(ctx context.Context, userID, noteID uint64) (bool,
 	return count > 0, err
 }
 
+func (r *Repository) LikedNoteIDs(ctx context.Context, userID uint64, noteIDs []uint64) (map[uint64]bool, error) {
+	if userID == 0 || len(noteIDs) == 0 {
+		return map[uint64]bool{}, nil
+	}
+
+	var ids []uint64
+	err := r.db.WithContext(ctx).
+		Model(&NoteLike{}).
+		Where("user_id = ? AND note_id IN ?", userID, uniqueUint64s(noteIDs)).
+		Pluck("note_id", &ids).Error
+	if err != nil {
+		return nil, err
+	}
+	return uint64Set(ids), nil
+}
+
 // HasFavorited checks if a user has favorited a specific note.
 func (r *Repository) HasFavorited(ctx context.Context, userID, noteID uint64) (bool, error) {
 	var count int64
@@ -228,9 +244,65 @@ func (r *Repository) HasFavorited(ctx context.Context, userID, noteID uint64) (b
 	return count > 0, err
 }
 
+func (r *Repository) FavoritedNoteIDs(ctx context.Context, userID uint64, noteIDs []uint64) (map[uint64]bool, error) {
+	if userID == 0 || len(noteIDs) == 0 {
+		return map[uint64]bool{}, nil
+	}
+
+	var ids []uint64
+	err := r.db.WithContext(ctx).
+		Model(&NoteFavorite{}).
+		Where("user_id = ? AND note_id IN ?", userID, uniqueUint64s(noteIDs)).
+		Pluck("note_id", &ids).Error
+	if err != nil {
+		return nil, err
+	}
+	return uint64Set(ids), nil
+}
+
 // IsFollowing checks if a user is following another user.
 func (r *Repository) IsFollowing(ctx context.Context, followerID, followeeID uint64) (bool, error) {
 	var count int64
 	err := r.db.WithContext(ctx).Model(&Follow{}).Where("follower_id = ? AND followee_id = ?", followerID, followeeID).Count(&count).Error
 	return count > 0, err
+}
+
+func (r *Repository) FollowingAuthorIDs(ctx context.Context, followerID uint64, authorIDs []uint64) (map[uint64]bool, error) {
+	if followerID == 0 || len(authorIDs) == 0 {
+		return map[uint64]bool{}, nil
+	}
+
+	var ids []uint64
+	err := r.db.WithContext(ctx).
+		Model(&Follow{}).
+		Where("follower_id = ? AND followee_id IN ?", followerID, uniqueUint64s(authorIDs)).
+		Pluck("followee_id", &ids).Error
+	if err != nil {
+		return nil, err
+	}
+	return uint64Set(ids), nil
+}
+
+func uniqueUint64s(ids []uint64) []uint64 {
+	unique := make([]uint64, 0, len(ids))
+	seen := make(map[uint64]struct{}, len(ids))
+	for _, id := range ids {
+		if id == 0 {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		unique = append(unique, id)
+	}
+	return unique
+}
+
+func uint64Set(ids []uint64) map[uint64]bool {
+	set := make(map[uint64]bool, len(ids))
+	for _, id := range ids {
+		set[id] = true
+	}
+	return set
 }

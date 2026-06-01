@@ -1,0 +1,112 @@
+services:
+  mysql:
+    image: mysql:8.4
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_ai_ci
+      - --max-connections=300
+      - --innodb-buffer-pool-size=512M
+    environment:
+      MYSQL_ROOT_PASSWORD: ripple_note_dev_pass
+      MYSQL_DATABASE: ripple_note
+      TZ: Asia/Shanghai
+    volumes:
+      - ripple-note-mysql:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -uroot -p$${MYSQL_ROOT_PASSWORD} --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  redis:
+    image: redis:7.4-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - ripple-note-redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  rabbitmq:
+    image: rabbitmq:4-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+      TZ: Asia/Shanghai
+    volumes:
+      - ripple-note-rabbitmq:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.prebuilt
+      args:
+        TARGET: server
+    command: ["-config", "/app/configs/config.deploy.yaml"]
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    ports:
+      - "18080:8080"
+    volumes:
+      - ripple-note-uploads:/app/uploads
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.prebuilt
+      args:
+        TARGET: worker
+    command: ["-config", "/app/configs/config.deploy.yaml"]
+    depends_on:
+      mysql:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.prebuilt
+      args:
+        TARGET: web
+    command: ["-listen", ":80", "-web", "/app/web/dist", "-api", "http://api:8080"]
+    depends_on:
+      - api
+    ports:
+      - "18082:80"
+    restart: unless-stopped
+
+  loadseed:
+    profiles: ["tools"]
+    build:
+      context: .
+      dockerfile: Dockerfile.prebuilt
+      args:
+        TARGET: loadseed
+    command: ["-config", "/app/configs/config.deploy.yaml"]
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+volumes:
+  ripple-note-mysql:
+  ripple-note-redis:
+  ripple-note-rabbitmq:
+  ripple-note-uploads:

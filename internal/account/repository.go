@@ -56,6 +56,39 @@ func (r *GormUserRepository) FindByID(ctx context.Context, id uint64) (*User, er
 	return &user, nil
 }
 
+func (r *GormUserRepository) FindByIDs(ctx context.Context, ids []uint64) (map[uint64]*User, error) {
+	if len(ids) == 0 {
+		return map[uint64]*User{}, nil
+	}
+
+	uniqueIDs := make([]uint64, 0, len(ids))
+	seen := make(map[uint64]struct{}, len(ids))
+	for _, id := range ids {
+		if id == 0 {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		uniqueIDs = append(uniqueIDs, id)
+	}
+	if len(uniqueIDs) == 0 {
+		return map[uint64]*User{}, nil
+	}
+
+	var users []*User
+	if err := r.db.WithContext(ctx).Where("id IN ?", uniqueIDs).Find(&users).Error; err != nil {
+		return nil, err
+	}
+
+	byID := make(map[uint64]*User, len(users))
+	for _, user := range users {
+		byID[user.ID] = user
+	}
+	return byID, nil
+}
+
 func NormalizeEmail(email string) string {
 	return strings.ToLower(strings.TrimSpace(email))
 }

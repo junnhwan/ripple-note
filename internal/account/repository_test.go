@@ -69,6 +69,48 @@ func TestGormUserRepositoryRejectsDuplicateEmail(t *testing.T) {
 	}
 }
 
+func TestGormUserRepositoryFindsUsersByIDs(t *testing.T) {
+	t.Parallel()
+
+	db := newAccountTestDB(t)
+	repo := account.NewGormUserRepository(db)
+
+	first, err := repo.Create(t.Context(), &account.User{
+		Email:        "first@example.com",
+		PasswordHash: "hash",
+		Nickname:     "First",
+		Role:         account.RoleUser,
+		Status:       account.StatusActive,
+	})
+	if err != nil {
+		t.Fatalf("create first user: %v", err)
+	}
+	second, err := repo.Create(t.Context(), &account.User{
+		Email:        "second@example.com",
+		PasswordHash: "hash",
+		Nickname:     "Second",
+		Role:         account.RoleUser,
+		Status:       account.StatusActive,
+	})
+	if err != nil {
+		t.Fatalf("create second user: %v", err)
+	}
+
+	users, err := repo.FindByIDs(t.Context(), []uint64{first.ID, second.ID, first.ID})
+	if err != nil {
+		t.Fatalf("find users by ids: %v", err)
+	}
+	if len(users) != 2 {
+		t.Fatalf("expected 2 unique users, got %d", len(users))
+	}
+	if users[first.ID].Nickname != "First" {
+		t.Fatalf("expected first nickname to be First, got %q", users[first.ID].Nickname)
+	}
+	if users[second.ID].Nickname != "Second" {
+		t.Fatalf("expected second nickname to be Second, got %q", users[second.ID].Nickname)
+	}
+}
+
 func newAccountTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 

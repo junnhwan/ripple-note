@@ -7,6 +7,7 @@ import { useAuth } from "@/context/AuthContext";
 import LikeButton from "@/components/interaction/LikeButton";
 import FavoriteButton from "@/components/interaction/FavoriteButton";
 import FollowButton from "@/components/interaction/FollowButton";
+import ErrorState from "@/components/common/ErrorState";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";

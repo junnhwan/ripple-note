@@ -1,0 +1,13 @@
+FROM scratch
+
+ARG TARGET=server
+
+WORKDIR /app
+
+COPY --chmod=755 deploy/bin/${TARGET} /app/app
+COPY configs /app/configs
+COPY web/dist /app/web/dist
+
+EXPOSE 8080
+
+ENTRYPOINT ["/app/app"]

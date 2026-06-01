@@ -42,6 +42,23 @@ func (p *userAuthorProvider) FindByID(ctx context.Context, id uint64) (note.Auth
 	return note.AuthorDTO{ID: user.ID, Nickname: user.Nickname, AvatarURL: user.AvatarURL}, nil
 }
 
+func (p *userAuthorProvider) FindByIDs(ctx context.Context, ids []uint64) (map[uint64]note.AuthorDTO, error) {
+	users, err := p.repo.FindByIDs(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+
+	authors := make(map[uint64]note.AuthorDTO, len(users))
+	for id, user := range users {
+		authors[id] = note.AuthorDTO{
+			ID:        user.ID,
+			Nickname:  user.Nickname,
+			AvatarURL: user.AvatarURL,
+		}
+	}
+	return authors, nil
+}
+
 // authorInfoAdapter implements review.AuthorInfoProvider using account and note repos.
 type authorInfoAdapter struct {
 	userRepo *account.GormUserRepository
@@ -200,19 +217,19 @@ func main() {
 			interactionRoutes = interaction.NewHandler(interactionRepo)
 		}
 
-			// --- Outbox: only connect to RabbitMQ for exchange declaration.
-			// Outbox worker runs in cmd/worker; API server does NOT consume outbox.
-			if cfg.RabbitMQ.Enabled {
-				rmq, err := outbox.NewRabbitMQPublisher(cfg.RabbitMQ.DSN, cfg.RabbitMQ.Exchange, logger)
-				if err != nil {
-					logger.Error("connect rabbitmq failed", "error", err)
-					os.Exit(1)
-				}
-				defer rmq.Close()
-				logger.Info("rabbitmq connected")
+		// --- Outbox: only connect to RabbitMQ for exchange declaration.
+		// Outbox worker runs in cmd/worker; API server does NOT consume outbox.
+		if cfg.RabbitMQ.Enabled {
+			rmq, err := outbox.NewRabbitMQPublisher(cfg.RabbitMQ.DSN, cfg.RabbitMQ.Exchange, logger)
+			if err != nil {
+				logger.Error("connect rabbitmq failed", "error", err)
+				os.Exit(1)
 			}
+			defer rmq.Close()
+			logger.Info("rabbitmq connected")
+		}
 
-			// Wire cache invalidation into review service and internal handler.
+		// Wire cache invalidation into review service and internal handler.
 		if cacheInvalidator != nil {
 			reviewService.SetCacheInvalidator(cacheInvalidator)
 			internalHandler.SetCacheInvalidator(cacheInvalidator)

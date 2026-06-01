@@ -9,7 +9,7 @@ import {
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
-import { PenSquare, User, LogOut, Shield, Compass, Sparkles } from "lucide-react";
+import { User, LogOut, Shield, Compass, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export default function Navbar() {

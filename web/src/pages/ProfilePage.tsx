@@ -6,7 +6,7 @@ import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import EmptyState from "@/components/common/EmptyState";
-import { PenSquare, FileText, Clock, XCircle, CheckCircle, Sparkles } from "lucide-react";
+import { FileText, Clock, XCircle, CheckCircle, Sparkles } from "lucide-react";
 import type { Note } from "@/types";
 
 export default function ProfilePage() {

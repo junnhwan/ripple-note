@@ -25,3 +25,6 @@ go.work.exclude
 uploads/
 
 *.exe
+
+# Local deploy binaries generated for Dockerfile.prebuilt fallback.
+deploy/bin/

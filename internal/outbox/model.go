@@ -3,7 +3,6 @@ package outbox
 import (
 	"encoding/json"
 	"time"
-
 )
 
 const (

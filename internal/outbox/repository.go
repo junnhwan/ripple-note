@@ -51,6 +51,16 @@ func (r *Repository) MarkFailed(ctx context.Context, id uint64, retryCount int, 
 		}).Error
 }
 
+func (r *Repository) MarkAbandoned(ctx context.Context, id uint64, retryCount int) error {
+	return r.db.WithContext(ctx).Model(&Event{}).Where("id = ?", id).
+		Updates(map[string]any{
+			"status":        StatusAbandoned,
+			"retry_count":   retryCount,
+			"next_retry_at": nil,
+			"updated_at":    time.Now(),
+		}).Error
+}
+
 func (r *Repository) DB() *gorm.DB { return r.db }
 
 func (r *Repository) tx(tx *gorm.DB) *gorm.DB {

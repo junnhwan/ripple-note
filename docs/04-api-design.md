@@ -32,6 +32,26 @@ Error response:
 }
 ```
 
+## Error Code Catalog
+
+知涟错误响应保持统一结构，`error.code` 既服务前端提示，也服务面试时解释 API 契约。业务代码可以保留更细的错误码，但必须能归入以下类别。
+
+| 类别 | HTTP 状态 | 通用 code | 当前示例 | 说明 |
+| --- | --- | --- | --- | --- |
+| 参数错误 | `400` | `invalid_argument` / `validation_error` | `invalid_json`、`invalid_note_id`、`invalid_decision` | 请求体、路径参数、业务字段不合法 |
+| 未认证 | `401` | `unauthorized` | `unauthorized`、`invalid_credentials` | 缺少 JWT、JWT 无效、登录失败 |
+| 权限不足 | `403` | `forbidden` | `forbidden`、`user_disabled` | 已认证但无权限或账号不可用 |
+| 资源不存在 | `404` | `not_found` | `not_found`、`note_not_found`、`task_not_found` | 路由或业务资源不存在 |
+| 状态冲突 | `409` | `state_conflict` | `already_decided`、`email_already_registered` | 重复注册、重复决策等状态冲突 |
+| 频率限制 | `429` | `rate_limited` | `rate_limited` | Redis 固定窗口限流触发 |
+| 内部错误 | `500` | `internal_error` | `internal_error` | 未暴露给客户端的服务端错误 |
+
+错误码命名原则：
+
+- 前端可以直接判断 `code`，不解析自然语言 `message`。
+- `message` 面向用户或调用方，避免泄露 SQL、Redis、RabbitMQ 等内部错误。
+- 内部 Agent API 也使用相同错误结构，便于 `知涟洞察` 统一处理失败。
+
 ## Account APIs
 
 | Method | Path | Auth | Description |

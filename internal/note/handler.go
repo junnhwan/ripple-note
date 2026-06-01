@@ -1,6 +1,7 @@
 package note
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strconv"
@@ -12,11 +13,17 @@ import (
 )
 
 type Handler struct {
-	service      *Service
+	service      ServiceAPI
 	optionalAuth gin.HandlerFunc
 }
 
-func NewHandler(service *Service, optionalAuth gin.HandlerFunc) *Handler {
+type ServiceAPI interface {
+	Publish(ctx context.Context, input PublishInput, authorID uint64) (NoteDTO, error)
+	Detail(ctx context.Context, noteID uint64, viewerID uint64) (NoteDTO, error)
+	MyNotes(ctx context.Context, authorID uint64, limit, offset int) (NoteListDTO, error)
+}
+
+func NewHandler(service ServiceAPI, optionalAuth gin.HandlerFunc) *Handler {
 	return &Handler{service: service, optionalAuth: optionalAuth}
 }
 

@@ -7,6 +7,8 @@ import (
 	"time"
 )
 
+const DefaultMaxRetries = 5
+
 type Publisher interface {
 	Publish(topic string, payload []byte) error
 }
@@ -16,11 +18,12 @@ type NopPublisher struct{}
 func (n *NopPublisher) Publish(_ string, _ []byte) error { return nil }
 
 type Worker struct {
-	repo      *Repository
-	publisher Publisher
-	logger    *slog.Logger
-	interval  time.Duration
-	batchSize int
+	repo       *Repository
+	publisher  Publisher
+	logger     *slog.Logger
+	interval   time.Duration
+	batchSize  int
+	maxRetries int
 
 	stopCh chan struct{}
 	wg     sync.WaitGroup
@@ -34,12 +37,13 @@ func NewWorker(repo *Repository, publisher Publisher, logger *slog.Logger, inter
 		batchSize = 50
 	}
 	return &Worker{
-		repo:      repo,
-		publisher: publisher,
-		logger:    logger,
-		interval:  interval,
-		batchSize: batchSize,
-		stopCh:    make(chan struct{}),
+		repo:       repo,
+		publisher:  publisher,
+		logger:     logger,
+		interval:   interval,
+		batchSize:  batchSize,
+		maxRetries: DefaultMaxRetries,
+		stopCh:     make(chan struct{}),
 	}
 }
 
@@ -89,8 +93,13 @@ func (w *Worker) processBatch() {
 				"topic", event.Topic,
 				"error", err,
 			)
+			retryCount := event.RetryCount + 1
+			if retryCount > w.maxRetries {
+				_ = w.repo.MarkAbandoned(ctx, event.ID, retryCount)
+				continue
+			}
 			nextRetry := time.Now().Add(30 * time.Second)
-			_ = w.repo.MarkFailed(ctx, event.ID, event.RetryCount+1, nextRetry)
+			_ = w.repo.MarkFailed(ctx, event.ID, retryCount, nextRetry)
 			continue
 		}
 		sentIDs = append(sentIDs, event.ID)

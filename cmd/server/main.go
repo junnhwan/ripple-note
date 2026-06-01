@@ -8,8 +8,12 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
+
+	"github.com/gin-gonic/gin"
 
 	"ripple-note/internal/account"
 	"ripple-note/internal/auth"
@@ -23,6 +27,7 @@ import (
 	"ripple-note/internal/note"
 	"ripple-note/internal/observability"
 	"ripple-note/internal/outbox"
+	"ripple-note/internal/ratelimit"
 	"ripple-note/internal/review"
 	"ripple-note/internal/storage"
 	"ripple-note/internal/upload"
@@ -128,6 +133,7 @@ func main() {
 		feedRoutes        httpapi.AccountRoutes
 		interactionRoutes httpapi.AccountRoutes
 		internalRoutes    httpapi.InternalRoutes
+		limiter           *ratelimit.Limiter
 	)
 
 	if cfg.MySQL.Enabled {
@@ -173,7 +179,10 @@ func main() {
 
 		// --- Review ---
 		reviewRepo := review.NewRepository(db)
-		reviewService := review.NewService(reviewRepo, noteRepo)
+		// --- Outbox ---
+		outboxRepo := outbox.NewRepository(db)
+		outboxHelper := outbox.NewHelper(outboxRepo)
+		reviewService := review.NewService(reviewRepo, noteRepo, outboxHelper)
 		reviewRoutes = review.NewHandler(reviewService)
 
 		// Internal handler with real author info provider.
@@ -181,21 +190,18 @@ func main() {
 		internalHandler := review.NewInternalHandler(reviewRepo, noteRepo, authorInfo)
 		internalRoutes = internalHandler
 
-		// --- Outbox ---
-		outboxRepo := outbox.NewRepository(db)
-		outboxHelper := outbox.NewHelper(outboxRepo)
 		noteService := note.NewService(noteRepo, authorProvider, reviewService, outboxHelper)
 		optionalAuth := middleware.OptionalAuth(jwtManager)
-		noteRoutes = note.NewHandler(noteService, optionalAuth)
 
 		// --- Feed ---
 		feedRepo := feed.NewRepository(db)
-		interactionRepo := interaction.NewRepository(db)
+		interactionRepo := interaction.NewRepository(db, outboxHelper)
 		followProvider := follow.NewProvider(interactionRepo)
 		feedService := feed.NewService(db, feedRepo, noteRepo, authorProvider, followProvider, interactionRepo)
 
 		// --- Redis Cache ---
 		var feedHandler feed.FeedService = feedService
+		var noteHandlerService note.ServiceAPI = noteService
 		var cacheInvalidator *cacheInvalidatorAdapter
 		if cfg.Redis.Enabled {
 			redisClient, err := cache.NewClient(cfg.Redis.Addr, cfg.Redis.Password, cfg.Redis.DB)
@@ -206,11 +212,14 @@ func main() {
 			defer redisClient.Close()
 			feedCache := cache.NewFeedCache(redisClient, feedService)
 			feedHandler = feedCache
+			noteHandlerService = cache.NewNoteServiceCache(redisClient, noteService)
 			cacheInvalidator = &cacheInvalidatorAdapter{cache: feedCache}
+			limiter = ratelimit.NewLimiter(ratelimit.NewRedisStore(redisClient.Raw()), defaultRateLimitRules(jwtManager))
 			logger.Info("redis connected")
 		}
 
 		feedRoutes = feed.NewHandler(feedHandler, optionalAuth)
+		noteRoutes = note.NewHandler(noteHandlerService, optionalAuth)
 		if cacheInvalidator != nil {
 			interactionRoutes = interaction.NewHandler(interactionRepo, cacheInvalidator)
 		} else {
@@ -254,6 +263,7 @@ func main() {
 			UploadStaticDir:   cfg.Upload.ImageDir,
 			InternalRoutes:    internalRoutes,
 			InternalToken:     cfg.Review.InternalToken,
+			RateLimiter:       limiter,
 		}),
 		ReadTimeout:  cfg.HTTP.ReadTimeout,
 		WriteTimeout: cfg.HTTP.WriteTimeout,
@@ -285,4 +295,85 @@ func main() {
 	}
 
 	logger.Info("http server stopped")
+}
+
+func defaultRateLimitRules(jwtManager *auth.JWTManager) []ratelimit.Rule {
+	userIDKey := authTokenUserIDKey(jwtManager)
+	return []ratelimit.Rule{
+		{
+			Name:    "register-by-ip",
+			Method:  http.MethodPost,
+			Path:    "/api/users",
+			Limit:   5,
+			Window:  time.Hour,
+			KeyFunc: ratelimit.IPKey("rate:auth:register:ip"),
+		},
+		{
+			Name:    "login-by-ip",
+			Method:  http.MethodPost,
+			Path:    "/api/sessions",
+			Limit:   10,
+			Window:  time.Minute,
+			KeyFunc: ratelimit.IPKey("rate:auth:login:ip"),
+		},
+		{
+			Name:    "publish-by-user",
+			Method:  http.MethodPost,
+			Path:    "/api/notes",
+			Limit:   10,
+			Window:  time.Minute,
+			KeyFunc: userIDKey("rate:publish:user"),
+		},
+		{
+			Name:    "like-by-user",
+			Method:  http.MethodPut,
+			Path:    "/api/notes/:noteId/like",
+			Limit:   60,
+			Window:  time.Minute,
+			KeyFunc: userIDKey("rate:interaction:like:user"),
+		},
+		{
+			Name:    "favorite-by-user",
+			Method:  http.MethodPut,
+			Path:    "/api/notes/:noteId/favorite",
+			Limit:   60,
+			Window:  time.Minute,
+			KeyFunc: userIDKey("rate:interaction:favorite:user"),
+		},
+		{
+			Name:    "comment-by-user",
+			Method:  http.MethodPost,
+			Path:    "/api/notes/:noteId/comments",
+			Limit:   20,
+			Window:  time.Minute,
+			KeyFunc: userIDKey("rate:interaction:comment:user"),
+		},
+		{
+			Name:    "follow-by-user",
+			Method:  http.MethodPut,
+			Path:    "/api/users/me/following/:targetUserId",
+			Limit:   30,
+			Window:  time.Minute,
+			KeyFunc: userIDKey("rate:interaction:follow:user"),
+		},
+	}
+}
+
+func authTokenUserIDKey(jwtManager *auth.JWTManager) func(prefix string) ratelimit.KeyFunc {
+	return func(prefix string) ratelimit.KeyFunc {
+		return func(c *gin.Context) string {
+			if jwtManager == nil {
+				return ratelimit.IPKey(prefix + ":ip")(c)
+			}
+			scheme, token, ok := strings.Cut(c.GetHeader("Authorization"), " ")
+			if !ok || !strings.EqualFold(scheme, "Bearer") || strings.TrimSpace(token) == "" {
+				return ratelimit.IPKey(prefix + ":ip")(c)
+			}
+			claims, err := jwtManager.Parse(strings.TrimSpace(token))
+			if err != nil || claims.UserID == 0 {
+				return ratelimit.IPKey(prefix + ":ip")(c)
+			}
+			return prefix + ":" + strconv.FormatUint(claims.UserID, 10)
+		}
+	}
 }

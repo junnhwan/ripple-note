@@ -31,6 +31,10 @@ func (c *Client) Close() error {
 	return c.rdb.Close()
 }
 
+func (c *Client) Raw() *redis.Client {
+	return c.rdb
+}
+
 func (c *Client) Get(ctx context.Context, key string, dest any) error {
 	val, err := c.rdb.Get(ctx, key).Result()
 	if err == redis.Nil {

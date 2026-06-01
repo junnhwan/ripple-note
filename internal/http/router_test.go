@@ -7,9 +7,13 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
+
+	"github.com/gin-gonic/gin"
 
 	httpapi "ripple-note/internal/http"
 	"ripple-note/internal/observability"
+	"ripple-note/internal/ratelimit"
 )
 
 func TestHealthReturnsUnifiedResponseWithProvidedRequestID(t *testing.T) {
@@ -118,10 +122,59 @@ func TestNotFoundUsesUnifiedErrorResponse(t *testing.T) {
 	}
 }
 
+func TestRouterAppliesRateLimiter(t *testing.T) {
+	t.Parallel()
+
+	router := httpapi.NewRouter(httpapi.RouterOptions{
+		Logger: observability.NewDiscardLogger(),
+		RateLimiter: ratelimit.NewLimiter(ratelimit.NewMemoryStore(), []ratelimit.Rule{
+			{
+				Name:    "test-route",
+				Method:  http.MethodPost,
+				Path:    "/api/test/write",
+				Limit:   1,
+				Window:  time.Minute,
+				KeyFunc: ratelimit.IPKey("rate:test"),
+			},
+		}),
+		AccountRoutes: testRoutes{},
+	})
+
+	first := httptest.NewRecorder()
+	router.ServeHTTP(first, httptest.NewRequest(http.MethodPost, "/api/test/write", nil))
+	if first.Code != http.StatusOK {
+		t.Fatalf("expected first request status 200, got %d body=%s", first.Code, first.Body.String())
+	}
+
+	second := httptest.NewRecorder()
+	router.ServeHTTP(second, httptest.NewRequest(http.MethodPost, "/api/test/write", nil))
+	if second.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected second request status 429, got %d body=%s", second.Code, second.Body.String())
+	}
+
+	var body struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	decodeJSON(t, second.Body.Bytes(), &body)
+	if body.Error.Code != "rate_limited" {
+		t.Fatalf("expected error code rate_limited, got %q", body.Error.Code)
+	}
+}
+
 func decodeJSON(t *testing.T, data []byte, target any) {
 	t.Helper()
 
 	if err := json.Unmarshal(data, target); err != nil {
 		t.Fatalf("failed to decode JSON %s: %v", string(data), err)
 	}
+}
+
+type testRoutes struct{}
+
+func (testRoutes) RegisterRoutes(router gin.IRouter, _ gin.HandlerFunc) {
+	router.POST("/test/write", func(c *gin.Context) {
+		httpapi.OK(c, gin.H{"ok": true})
+	})
 }

@@ -6,13 +6,15 @@ import (
 )
 
 const (
-	StatusPending = "pending"
-	StatusSent    = "sent"
-	StatusFailed  = "failed"
+	StatusPending   = "pending"
+	StatusSent      = "sent"
+	StatusFailed    = "failed"
+	StatusAbandoned = "abandoned"
 
 	TopicNoteReviewRequested = "note.review_requested"
 	TopicNoteReviewDecided   = "note.review_decided"
 	TopicInteractionCreated  = "interaction.created"
+	TopicInteractionRemoved  = "interaction.removed"
 )
 
 type Event struct {

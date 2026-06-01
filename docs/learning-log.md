@@ -582,3 +582,165 @@ Build a complete React frontend for the content community, covering feed browsin
 ### Demo Flow
 
 Browser can complete: Register → Login → Publish Note → Admin Review → Feed Display → Like/Comment/Follow
+
+## 2026-06-01 Optimization Stage A: Error Codes And Lightweight Rate Limiting
+
+### Stage Goal
+
+借鉴 Java 后端项目里的统一错误码和接口保护思路，但不引入复杂风控系统。当前阶段只为注册、登录、发布、互动和关注增加轻量 Redis 固定窗口限流，并补齐错误码文档。AI/审查 Agent 相关接口后续暂缓优化。
+
+### Files Created
+
+- `internal/ratelimit/limiter.go`: Gin 限流中间件、规则匹配、key 生成和内存测试 store。
+- `internal/ratelimit/redis_store.go`: Redis 固定窗口 `INCR + EXPIRE` store。
+- `internal/ratelimit/limiter_test.go`: 限流触发、规则隔离、窗口过期测试。
+- `docs/14-optimization-implementation-plan.md`: 项目优化方案和后续实施计划。
+
+### Files Modified
+
+- `cmd/server/main.go`: Redis 启用时注入默认限流规则。
+- `internal/http/router.go`: 增加可选 `RateLimiter` 全局中间件。
+- `internal/http/router_test.go`: 验证路由层限流会返回 `429 rate_limited`。
+- `internal/cache/redis.go`: 暴露底层 Redis client 给限流 store 使用。
+- `docs/04-api-design.md`: 增加错误码分类表。
+- `docs/cache-and-consistency.md`: 更新限流 key、窗口和降级策略。
+- `resume.md`: 改为更接近后端简历项目经历的写法。
+
+### Go Backend Notes
+
+- **固定窗口限流**：每个窗口内对同一个 key 执行 `INCR`，首次创建时设置 `EXPIRE`。超过阈值后返回 `429`。
+- **中间件顺序**：限流挂在全局中间件，执行早于路由内部的 `requireAuth`。因此用户态限流不能依赖 Gin context 中的 claims，而是在 key 函数里解析 Authorization token，失败则降级为 IP 维度。
+- **降级设计**：Redis 是保护能力，不是业务事实来源。Redis `INCR/EXPIRE` 失败时放行请求，避免 Redis 故障导致核心业务不可用。
+- **依赖方向**：`internal/http` 可以依赖 `internal/ratelimit`，但 `internal/ratelimit` 不能反向依赖 `internal/http`，否则 Go 会报 import cycle。限流包自己输出统一 JSON 形状来避免循环依赖。
+- **测试隔离**：生产使用 Redis store，单元测试使用内存 store，测试限流语义而不是依赖真实 Redis。
+
+### Java Spring Boot Comparison
+
+- Gin middleware ≈ Spring MVC `HandlerInterceptor` 或 Spring Security filter。
+- `Store` 接口 + Redis 实现 ≈ Spring 中的 `RateLimiter` service + `StringRedisTemplate`。
+- `INCR + EXPIRE` 固定窗口 ≈ RedisTemplate `opsForValue().increment()` 后设置 TTL。
+- Redis 故障放行 ≈ Java 项目里把限流作为保护层而非核心业务依赖，通常配合日志和监控。
+- Go 的 import cycle 限制比 Java 更严格，倒逼包边界更清楚。
+
+### Verification
+
+- `go test ./internal/ratelimit -run Test -v` passed。
+- `go test ./internal/http -run TestRouterAppliesRateLimiter -v` passed。
+- `go test ./internal/ratelimit ./internal/http ./internal/cache` passed。
+
+### Follow-Up
+
+- Stage B: 收敛代码中的错误码常量，减少散落字符串。
+- Stage C: 把 `note:detail:{id}` 和 `note:counts:{id}` 接入 cache-aside 读路径。
+- Stage D: 补齐 `note.review_decided` 与 interaction outbox events。
+- Stage E: 跑 k6 压测并只把真实数据写进简历。
+
+## 2026-06-01 Optimization Stage C: Note Detail Cache-Aside
+
+### Stage Goal
+
+把文档中已经约定的 `note:detail:{id}` 和 `note:counts:{id}` 接入真实读路径，增强 Redis 缓存与一致性设计的完整性。
+
+### Files Created
+
+- `internal/cache/note_cache.go`: Note service 的 cache-aside 装饰器。
+- `internal/cache/note_cache_test.go`: 匿名详情缓存、计数快照、登录态绕过、Redis 失败降级测试。
+
+### Files Modified
+
+- `internal/note/handler.go`: Handler 依赖 `ServiceAPI` 接口，不再强依赖具体 `*Service`，便于注入缓存装饰器。
+- `cmd/server/main.go`: Redis 启用时为 note detail 注入 `cache.NewNoteServiceCache`。
+- `docs/cache-and-consistency.md`: 更新 note detail/counts 缓存状态和规则。
+
+### Go Backend Notes
+
+- **装饰器模式**：`NoteServiceCache` 包住原始 note service，只增强读路径缓存，不侵入 note 业务服务。
+- **接口倒置**：handler 只需要 `Publish/Detail/MyNotes` 三个方法，因此定义 `ServiceAPI`，让原始 service 和缓存 service 都能被注入。
+- **Cache Aside**：匿名详情先查 Redis，miss 后查 MySQL，组装 DTO 后写入 Redis。
+- **共享缓存边界**：当前只缓存匿名公开详情。登录态 detail 暂不读共享缓存，避免未来添加 viewer state 时出现用户态串缓存。
+- **降级策略**：Redis GET/SET 失败不会影响 MySQL 读结果。
+
+### Java Spring Boot Comparison
+
+- 装饰器类似 Spring 中用一个 service wrapper 或 AOP `@Around` 包住查询方法。
+- `ServiceAPI` 类似 Java 中按业务能力抽 interface，controller 依赖接口而不是具体实现。
+- Cache Aside 类似 `RedisTemplate.get -> repository.query -> RedisTemplate.set`，但 Go 中显式错误返回更容易把降级策略写清楚。
+
+### Verification
+
+- `go test ./internal/cache ./internal/note ./cmd/server` passed。
+
+### Follow-Up
+
+- 互动写入已经会失效 note detail/counts key，后续可补集成测试覆盖“点赞后旧 counts 缓存被删除”。
+- 资料页 `user:profile:{id}` 仍未接入，可放到后续阶段。
+
+## 2026-06-01 Optimization Stage D: Outbox Contract Tightening
+
+### Stage Goal
+
+让 RabbitMQ + Outbox 从“有事件表和 worker”升级为“核心写链路有明确事件合约和失败终态”。本阶段不继续扩展 AI/审查 Agent，只处理后端主线：管理员审核决策、互动写路径和 worker 重试边界。
+
+### Files Created
+
+- `internal/outbox/publisher_test.go`: worker 失败重试和 `abandoned` 终态测试。
+- `internal/review/service_test.go`: admin 审核决策产生 `note.review_decided` outbox event 的服务层测试。
+- `docs/15-backend-optimization-log.md`: 后端优化过程、方案、实现、验证和复习清单。
+
+### Files Modified
+
+- `internal/outbox/model.go`: 新增 `StatusAbandoned` 和 `TopicInteractionRemoved`。
+- `internal/outbox/repository.go`: 新增 `MarkAbandoned`。
+- `internal/outbox/publisher.go`: 新增 `DefaultMaxRetries = 5`，超过上限后停止自动重试。
+- `internal/review/service.go`: admin decision 事务内写入 `note.review_decided`。
+- `internal/interaction/repository.go`: 互动真实状态变更时写入 `interaction.created` / `interaction.removed`。
+- `cmd/server/main.go`: review、note、interaction 写路径共用同一个 `outbox.Helper`。
+- `docs/events-and-outbox.md`: 更新事件目录、payload、状态机、测试清单和失败策略。
+- `docs/14-optimization-implementation-plan.md`: 标记 Stage C/D 已实施，并把 AI 相关内容降为未来扩展。
+- `docs/cache-and-consistency.md`: 移除当前阶段的 Agent callback 限流重点。
+- `resume.md`: 调整为后端主线表达。
+
+### Go Backend Notes
+
+- **Transactional Outbox**: 业务写入和 outbox event 写入放在同一个 MySQL 事务中。业务成功则事件一定存在，业务失败则事件也回滚。
+- **At-least-once delivery**: worker 成功发布后再标记 `sent`。如果发布成功但标记失败，下一轮可能重复发布，因此消费者必须幂等。
+- **Idempotent producer**: interaction repository 只在真实状态变化时写事件。重复点赞、重复取消等幂等请求不重复产事件。
+- **Failure terminal state**: `failed` 代表可自动重试，`abandoned` 代表超过自动重试上限，需要人工检查或后续 replay 工具。
+- **接口注入**: `review` 和 `interaction` 都定义本地 `OutboxEventCreator` 接口，避免业务包直接依赖 RabbitMQ 发布实现。
+
+### Java Spring Boot Comparison
+
+- Outbox event 写入 ≈ Spring `@Transactional` 方法里同时写业务表和 `outbox_events` 表。
+- Worker 轮询 ≈ Spring `@Scheduled` 定时任务或独立 worker 服务。
+- `failed/next_retry_at/abandoned` ≈ Java MQ 项目里的 retry table、dead-letter 或人工补偿表。
+- Go 中通过小接口注入 outbox helper，类似 Java 里 service 依赖接口而不是具体 MQ client。
+- Go 的显式事务闭包让“哪些写入同属一个事务”更直观；Spring 依赖注解事务，需要注意 self-invocation 和传播行为。
+
+### Key Code Paths
+
+- 发布内容：`note.Service.Publish` -> `outbox_events(note.review_requested)`。
+- 审核决策：`review.Service.Decide` -> `outbox_events(note.review_decided)`。
+- 点赞/收藏/评论/关注：`interaction.Repository` -> `outbox_events(interaction.created)`。
+- 取消点赞/取消收藏/取消关注：`interaction.Repository` -> `outbox_events(interaction.removed)`。
+- 事件投递：`outbox.Worker.processBatch` -> `Publisher.Publish` -> `MarkSent/MarkFailed/MarkAbandoned`。
+
+### Common Pitfalls
+
+- 不要在业务事务里直接调用 RabbitMQ；否则数据库提交成功但 MQ 失败会丢事件。
+- 不要对幂等请求重复产事件；否则后续通知、热榜、统计会重复处理。
+- 不要把 `failed` 当终态；需要 `abandoned` 或 dead-letter 让问题可观察。
+- 不要假设 MQ exactly-once；RabbitMQ + Outbox 的常规语义是 at-least-once。
+- 不要让业务包依赖具体 MQ client；业务只需要写 outbox event。
+
+### Verification
+
+- `go test ./internal/interaction -run TestRepositoryCreatesOutbox -v` passed。
+- `go test ./internal/outbox -run TestWorker -v` passed。
+- `go test ./internal/review -run TestServiceDecideCreatesReviewDecidedOutboxEvent -v` passed。
+- `go test ./internal/interaction ./internal/outbox ./cmd/server -v` passed。
+
+### Follow-Up
+
+- Stage E: 跑 Redis enabled/disabled Feed 压测，把真实 P95/P99 和吞吐写入 `docs/12-load-test.md`。
+- P1: 增加 outbox replay CLI 或 admin 工具，支持查看和重放 `abandoned` event。
+- P1: hot Feed 可由 `interaction.created/removed` consumer 增量维护 Redis ZSET。

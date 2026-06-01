@@ -7,6 +7,7 @@ import (
 	"gorm.io/gorm"
 
 	"ripple-note/internal/note"
+	"ripple-note/internal/outbox"
 )
 
 var ErrNoteNotFound = errors.New("note not found")
@@ -15,11 +16,20 @@ var ErrNoteNotFound = errors.New("note not found")
 var ErrNoteNotAvailable = errors.New("note is not available for interaction")
 
 type Repository struct {
-	db *gorm.DB
+	db     *gorm.DB
+	outbox OutboxEventCreator
 }
 
-func NewRepository(db *gorm.DB) *Repository {
-	return &Repository{db: db}
+type OutboxEventCreator interface {
+	CreateEvent(ctx context.Context, tx *gorm.DB, topic, aggregateType string, aggregateID uint64, payload any) error
+}
+
+func NewRepository(db *gorm.DB, creators ...OutboxEventCreator) *Repository {
+	repo := &Repository{db: db}
+	if len(creators) > 0 {
+		repo.outbox = creators[0]
+	}
+	return repo
 }
 
 func (r *Repository) DB() *gorm.DB { return r.db }
@@ -60,6 +70,13 @@ func (r *Repository) UpsertLike(ctx context.Context, userID, noteID uint64) (boo
 					Update("likes_count", gorm.Expr("likes_count + 1")).Error; err != nil {
 					return err
 				}
+				if err := r.createInteractionEvent(ctx, tx, outbox.TopicInteractionCreated, "note", noteID, map[string]any{
+					"note_id": noteID,
+					"user_id": userID,
+					"action":  "like",
+				}); err != nil {
+					return err
+				}
 				created = true
 				return nil
 			}
@@ -76,6 +93,13 @@ func (r *Repository) UpsertLike(ctx context.Context, userID, noteID uint64) (boo
 		}
 		if err := tx.Model(&note.Note{}).Where("id = ?", noteID).
 			Update("likes_count", gorm.Expr("likes_count + 1")).Error; err != nil {
+			return err
+		}
+		if err := r.createInteractionEvent(ctx, tx, outbox.TopicInteractionCreated, "note", noteID, map[string]any{
+			"note_id": noteID,
+			"user_id": userID,
+			"action":  "like",
+		}); err != nil {
 			return err
 		}
 		created = true
@@ -96,8 +120,15 @@ func (r *Repository) DeleteLike(ctx context.Context, userID, noteID uint64) (boo
 			return nil
 		}
 		removed = true
-		return tx.Model(&note.Note{}).Where("id = ? AND likes_count > 0", noteID).
-			Update("likes_count", gorm.Expr("likes_count - 1")).Error
+		if err := tx.Model(&note.Note{}).Where("id = ? AND likes_count > 0", noteID).
+			Update("likes_count", gorm.Expr("likes_count - 1")).Error; err != nil {
+			return err
+		}
+		return r.createInteractionEvent(ctx, tx, outbox.TopicInteractionRemoved, "note", noteID, map[string]any{
+			"note_id": noteID,
+			"user_id": userID,
+			"action":  "unlike",
+		})
 	})
 	return removed, err
 }
@@ -114,6 +145,13 @@ func (r *Repository) UpsertFavorite(ctx context.Context, userID, noteID uint64) 
 				}
 				if err := tx.Model(&note.Note{}).Where("id = ?", noteID).
 					Update("favorites_count", gorm.Expr("favorites_count + 1")).Error; err != nil {
+					return err
+				}
+				if err := r.createInteractionEvent(ctx, tx, outbox.TopicInteractionCreated, "note", noteID, map[string]any{
+					"note_id": noteID,
+					"user_id": userID,
+					"action":  "favorite",
+				}); err != nil {
 					return err
 				}
 				created = true
@@ -134,6 +172,13 @@ func (r *Repository) UpsertFavorite(ctx context.Context, userID, noteID uint64) 
 			Update("favorites_count", gorm.Expr("favorites_count + 1")).Error; err != nil {
 			return err
 		}
+		if err := r.createInteractionEvent(ctx, tx, outbox.TopicInteractionCreated, "note", noteID, map[string]any{
+			"note_id": noteID,
+			"user_id": userID,
+			"action":  "favorite",
+		}); err != nil {
+			return err
+		}
 		created = true
 		return nil
 	})
@@ -152,8 +197,15 @@ func (r *Repository) DeleteFavorite(ctx context.Context, userID, noteID uint64) 
 			return nil
 		}
 		removed = true
-		return tx.Model(&note.Note{}).Where("id = ? AND favorites_count > 0", noteID).
-			Update("favorites_count", gorm.Expr("favorites_count - 1")).Error
+		if err := tx.Model(&note.Note{}).Where("id = ? AND favorites_count > 0", noteID).
+			Update("favorites_count", gorm.Expr("favorites_count - 1")).Error; err != nil {
+			return err
+		}
+		return r.createInteractionEvent(ctx, tx, outbox.TopicInteractionRemoved, "note", noteID, map[string]any{
+			"note_id": noteID,
+			"user_id": userID,
+			"action":  "unfavorite",
+		})
 	})
 	return removed, err
 }
@@ -163,8 +215,16 @@ func (r *Repository) CreateComment(ctx context.Context, comment *Comment) (*Comm
 		if err := tx.Create(comment).Error; err != nil {
 			return err
 		}
-		return tx.Model(&note.Note{}).Where("id = ?", comment.NoteID).
-			Update("comments_count", gorm.Expr("comments_count + 1")).Error
+		if err := tx.Model(&note.Note{}).Where("id = ?", comment.NoteID).
+			Update("comments_count", gorm.Expr("comments_count + 1")).Error; err != nil {
+			return err
+		}
+		return r.createInteractionEvent(ctx, tx, outbox.TopicInteractionCreated, "comment", comment.ID, map[string]any{
+			"note_id":    comment.NoteID,
+			"user_id":    comment.AuthorID,
+			"comment_id": comment.ID,
+			"action":     "comment",
+		})
 	})
 	if err != nil {
 		return nil, err
@@ -186,26 +246,51 @@ func (r *Repository) ListComments(ctx context.Context, noteID uint64, limit, off
 }
 
 func (r *Repository) UpsertFollow(ctx context.Context, followerID, followeeID uint64) (bool, error) {
-	var existing Follow
-	err := r.db.WithContext(ctx).Where("follower_id = ? AND followee_id = ?", followerID, followeeID).First(&existing).Error
-	if err == nil {
-		return false, nil // already following
-	}
-	if !errors.Is(err, gorm.ErrRecordNotFound) {
-		return false, err
-	}
-	if err := r.db.WithContext(ctx).Create(&Follow{FollowerID: followerID, FolloweeID: followeeID}).Error; err != nil {
-		return false, err
-	}
-	return true, nil
+	var created bool
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var existing Follow
+		err := tx.Where("follower_id = ? AND followee_id = ?", followerID, followeeID).First(&existing).Error
+		if err == nil {
+			created = false
+			return nil // already following
+		}
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
+		}
+		if err := tx.Create(&Follow{FollowerID: followerID, FolloweeID: followeeID}).Error; err != nil {
+			return err
+		}
+		created = true
+		return r.createInteractionEvent(ctx, tx, outbox.TopicInteractionCreated, "follow", followeeID, map[string]any{
+			"user_id":     followerID,
+			"follower_id": followerID,
+			"followee_id": followeeID,
+			"action":      "follow",
+		})
+	})
+	return created, err
 }
 
 func (r *Repository) DeleteFollow(ctx context.Context, followerID, followeeID uint64) (bool, error) {
-	result := r.db.WithContext(ctx).Where("follower_id = ? AND followee_id = ?", followerID, followeeID).Delete(&Follow{})
-	if result.Error != nil {
-		return false, result.Error
-	}
-	return result.RowsAffected > 0, nil
+	var removed bool
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		result := tx.Where("follower_id = ? AND followee_id = ?", followerID, followeeID).Delete(&Follow{})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			removed = false
+			return nil
+		}
+		removed = true
+		return r.createInteractionEvent(ctx, tx, outbox.TopicInteractionRemoved, "follow", followeeID, map[string]any{
+			"user_id":     followerID,
+			"follower_id": followerID,
+			"followee_id": followeeID,
+			"action":      "unfollow",
+		})
+	})
+	return removed, err
 }
 
 func (r *Repository) FollowingIDs(ctx context.Context, userID uint64) ([]uint64, error) {
@@ -305,4 +390,11 @@ func uint64Set(ids []uint64) map[uint64]bool {
 		set[id] = true
 	}
 	return set
+}
+
+func (r *Repository) createInteractionEvent(ctx context.Context, tx *gorm.DB, topic, aggregateType string, aggregateID uint64, payload any) error {
+	if r.outbox == nil {
+		return nil
+	}
+	return r.outbox.CreateEvent(ctx, tx, topic, aggregateType, aggregateID, payload)
 }

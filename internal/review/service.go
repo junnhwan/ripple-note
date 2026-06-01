@@ -10,6 +10,7 @@ import (
 	"gorm.io/gorm"
 
 	"ripple-note/internal/note"
+	"ripple-note/internal/outbox"
 )
 
 var (
@@ -23,14 +24,23 @@ type CacheInvalidator interface {
 	InvalidateNoteCache(ctx context.Context, noteID uint64)
 }
 
+type OutboxEventCreator interface {
+	CreateEvent(ctx context.Context, tx *gorm.DB, topic, aggregateType string, aggregateID uint64, payload any) error
+}
+
 type Service struct {
 	repo   *Repository
 	notes  *note.Repository
 	cache  CacheInvalidator
+	outbox OutboxEventCreator
 }
 
-func NewService(repo *Repository, notes *note.Repository) *Service {
-	return &Service{repo: repo, notes: notes}
+func NewService(repo *Repository, notes *note.Repository, creators ...OutboxEventCreator) *Service {
+	service := &Service{repo: repo, notes: notes}
+	if len(creators) > 0 {
+		service.outbox = creators[0]
+	}
+	return service
 }
 
 // SetCacheInvalidator injects an optional cache invalidation callback.
@@ -154,7 +164,13 @@ func (s *Service) Decide(ctx context.Context, taskID uint64, input DecideInput) 
 			EventType:   "admin_decided",
 			PayloadJSON: string(payload),
 		}
-		return s.repo.CreateEvent(ctx, tx, event)
+		if err := s.repo.CreateEvent(ctx, tx, event); err != nil {
+			return err
+		}
+		if err := s.createReviewDecidedEvent(ctx, tx, task, input.AdminID, noteStatus); err != nil {
+			return fmt.Errorf("create outbox event: %w", err)
+		}
+		return nil
 	})
 	if err != nil {
 		return TaskDTO{}, err
@@ -167,6 +183,28 @@ func (s *Service) Decide(ctx context.Context, taskID uint64, input DecideInput) 
 	}
 
 	return toTaskDTO(task), nil
+}
+
+func (s *Service) createReviewDecidedEvent(ctx context.Context, tx *gorm.DB, task *ReviewTask, adminID uint64, noteStatus string) error {
+	if s.outbox == nil {
+		return nil
+	}
+	return s.outbox.CreateEvent(ctx, tx, outbox.TopicNoteReviewDecided, "note", task.NoteID, map[string]any{
+		"note_id":     task.NoteID,
+		"task_id":     task.ID,
+		"author_id":   task.AuthorID,
+		"decision":    valueOrEmpty(task.AdminDecision),
+		"actor_type":  ActorTypeAdmin,
+		"actor_id":    adminID,
+		"note_status": noteStatus,
+	})
+}
+
+func valueOrEmpty(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }
 
 func toTaskDTO(task *ReviewTask) TaskDTO {

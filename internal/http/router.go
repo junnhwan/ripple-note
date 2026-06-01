@@ -9,6 +9,7 @@ import (
 	"ripple-note/internal/auth"
 	"ripple-note/internal/middleware"
 	"ripple-note/internal/observability"
+	"ripple-note/internal/ratelimit"
 )
 
 type AccountRoutes interface {
@@ -20,17 +21,18 @@ type InternalRoutes interface {
 }
 
 type RouterOptions struct {
-	Logger           *slog.Logger
-	AccountRoutes    AccountRoutes
-	NoteRoutes       AccountRoutes
-	UploadRoutes     AccountRoutes
-	ReviewRoutes     AccountRoutes
-	FeedRoutes       AccountRoutes
+	Logger            *slog.Logger
+	AccountRoutes     AccountRoutes
+	NoteRoutes        AccountRoutes
+	UploadRoutes      AccountRoutes
+	ReviewRoutes      AccountRoutes
+	FeedRoutes        AccountRoutes
 	InteractionRoutes AccountRoutes
-	InternalRoutes   InternalRoutes
-	JWTManager       *auth.JWTManager
-	InternalToken    string
-	UploadStaticDir  string
+	InternalRoutes    InternalRoutes
+	JWTManager        *auth.JWTManager
+	InternalToken     string
+	UploadStaticDir   string
+	RateLimiter       *ratelimit.Limiter
 }
 
 func NewRouter(options RouterOptions) http.Handler {
@@ -45,6 +47,9 @@ func NewRouter(options RouterOptions) http.Handler {
 	router.Use(gin.Recovery())
 	router.Use(middleware.RequestID())
 	router.Use(middleware.Logger(logger))
+	if options.RateLimiter != nil {
+		router.Use(options.RateLimiter.Middleware())
+	}
 
 	router.NoRoute(func(c *gin.Context) {
 		Error(c, http.StatusNotFound, "not_found", "route not found")

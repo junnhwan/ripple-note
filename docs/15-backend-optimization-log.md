@@ -106,6 +106,36 @@
 - Worker 的投递语义是 at-least-once，consumer 必须幂等。
 - `abandoned` 不是失败吞掉，而是停止自动重试，把问题交给监控和人工 replay。
 
+### Stage E: Benchmark And Resume Evidence
+
+目标：把 Feed 优化从“设计亮点”变成可核对的真实压测证据，并让 README 和简历只引用已有结果，不编造未执行数据。
+
+主要实现：
+
+- 补充 `scripts/loadtest/feed_hot_anonymous.js`，让 latest/hot 匿名场景都能独立运行。
+- 新增 `scripts/loadtest/run-k6.ps1`，统一封装 Docker 版 k6 参数、场景选择和结果输出路径。
+- 更新 `docs/12-load-test.md`：
+  - 补充一键运行入口。
+  - 补充 hot 匿名 Feed 手动命令。
+  - 明确已有结果来自 2026-05-31 云服务器压测。
+  - 明确 2026-06-01 本地 Docker daemon 未启动，因此没有新增本机压测数据。
+- 更新 README 和 `resume.md`，只引用已有真实数据：
+  - 匿名 latest Feed: 2683.62 RPS, P95 81.25ms。
+  - 登录态 latest Feed: 676.49 RPS, P95 106.90ms。
+  - 混合 Feed: 1293.32 RPS, P95 232.03ms。
+  - 登录态 latest Feed 优化前后：RPS 107.58 -> 676.49，P95 614.91ms -> 106.90ms。
+
+关键验证：
+
+- `go test ./...` 验证后端代码仍可通过。
+- 尝试使用 Docker 版 k6 校验脚本运行，失败原因是本机 Docker daemon 未启动，不是 k6 脚本业务断言失败。
+
+复习重点：
+
+- 简历性能数字必须能追溯到命令、环境、数据集和报告文件。
+- 压测结果要注明部署环境和限制，不能宣称为生产 SLA。
+- 没跑过的场景可以补脚本和模板，但不能补数字。
+
 ## Implementation Notes
 
 ### Package Boundaries

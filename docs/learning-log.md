@@ -744,3 +744,50 @@ Browser can complete: Register → Login → Publish Note → Admin Review → F
 - Stage E: 跑 Redis enabled/disabled Feed 压测，把真实 P95/P99 和吞吐写入 `docs/12-load-test.md`。
 - P1: 增加 outbox replay CLI 或 admin 工具，支持查看和重放 `abandoned` event。
 - P1: hot Feed 可由 `interaction.created/removed` consumer 增量维护 Redis ZSET。
+
+## 2026-06-01 Optimization Stage E: Benchmark And Resume Evidence
+
+### Stage Goal
+
+把 Feed 性能优化整理成可复现、可核对、可写进简历的证据链。当前只引用已经真实执行过的压测结果，不为未复跑场景编造数字。
+
+### Files Created
+
+- `scripts/loadtest/feed_hot_anonymous.js`: 匿名热门 Feed 独立 k6 场景。
+- `scripts/loadtest/run-k6.ps1`: PowerShell 封装脚本，用 Docker 版 k6 运行不同场景并保存结果。
+
+### Files Modified
+
+- `docs/12-load-test.md`: 增加一键运行入口、hot Feed 单场景命令、结果保存规则和本地复跑限制说明。
+- `README.md`: 增加压测结果摘要，把项目首页从功能说明升级为可量化后端项目展示。
+- `resume.md`: 增加 Feed SQL 查询数、RPS、P95 等真实数据。
+- `docs/15-backend-optimization-log.md`: 追加 Stage E 复盘。
+
+### Go Backend Notes
+
+- **压测证据链**：性能数据必须包含环境、数据规模、命令、脚本、结果和限制，缺任一项都不适合直接写进简历。
+- **容量压测 vs 用户行为压测**：当前 `SLEEP=0` 表示 VU 完成请求后立即下一次请求，偏容量上限，不代表普通用户真实停留行为。
+- **缓存效果解释**：匿名 latest/hot 首页能被 Redis 短 TTL 缓存加速；登录态 Feed 仍需要实时 viewer state，因此主要收益来自批量 hydration 和索引。
+- **数据诚实**：本轮没有在本机新增压测结果，因为 Docker daemon 未启动；README 和简历只引用 `docs/12-load-test.md` 已有云服务器真实结果。
+
+### Java Spring Boot Comparison
+
+- `scripts/loadtest/run-k6.ps1` 类似 Java 项目里用 Maven/Gradle task 或 shell 脚本封装 JMeter/k6 命令。
+- `loadseed` 类似 Spring Boot 项目中的 data generator 或 CommandLineRunner，但 Go 这里作为独立 `cmd/loadseed` 更适合部署和压测环境复用。
+- 压测报告中的环境和限制说明，类似生产压测报告里的 test scope / not SLA disclaimer。
+
+### Verification
+
+- `go test ./...` passed。
+- `docker --version` 可用。
+- `k6 version` 不可用，本机未安装 k6 CLI。
+- Docker 版 k6 运行失败，错误为 Docker daemon 未启动：`failed to connect to the docker API at npipe:////./pipe/dockerDesktopLinuxEngine`。
+
+### Follow-Up
+
+- 在 Docker daemon 可用或云服务器环境中运行：
+  - `.\scripts\loadtest\run-k6.ps1 -Scenario latest-anonymous -Vus 100 -Duration 2m -Sleep 0`
+  - `.\scripts\loadtest\run-k6.ps1 -Scenario hot-anonymous -Vus 100 -Duration 2m -Sleep 0`
+  - `.\scripts\loadtest\run-k6.ps1 -Scenario latest-auth -Vus 50 -Duration 2m -Sleep 0`
+  - `.\scripts\loadtest\run-k6.ps1 -Scenario mixed -Vus 100 -Duration 2m -Sleep 0`
+- 补跑 Redis disabled 配置，与 Redis enabled 做匿名首页对比。

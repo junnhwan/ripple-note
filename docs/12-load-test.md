@@ -67,6 +67,36 @@ loadtest@ripple.dev / loadtest123
 
 ## 执行命令
 
+### 一键 k6 入口
+
+仓库提供 PowerShell 封装脚本，适合在 Windows 本机或服务器上统一运行 k6 Docker 镜像并保存 summary：
+
+```powershell
+.\scripts\loadtest\run-k6.ps1 `
+  -Scenario latest-anonymous `
+  -BaseUrl http://127.0.0.1:18080 `
+  -Vus 100 `
+  -Duration 2m `
+  -Sleep 0
+```
+
+支持的场景：
+
+| Scenario | 脚本 | 说明 |
+| --- | --- | --- |
+| `latest-anonymous` | `feed_latest_anonymous.js` | 匿名最新 Feed |
+| `hot-anonymous` | `feed_hot_anonymous.js` | 匿名热门 Feed |
+| `latest-auth` | `feed_latest_auth.js` | 登录态最新 Feed，验证 viewer flags |
+| `mixed` | `feed_mixed.js` | latest/hot/following 混合流量 |
+
+结果默认写入：
+
+```text
+reports/loadtest/
+```
+
+### 手动部署和造数
+
 部署：
 
 ```bash
@@ -103,6 +133,20 @@ docker run --rm --network host \
   grafana/k6 run --quiet \
     --summary-trend-stats "avg,min,med,p(90),p(95),p(99),max" \
     /scripts/feed_latest_anonymous.js
+```
+
+匿名 hot Feed：
+
+```bash
+docker run --rm --network host \
+  -e BASE_URL=http://127.0.0.1:18080 \
+  -e VUS=100 \
+  -e DURATION=2m \
+  -e SLEEP=0 \
+  -v /root/ripple-note/scripts/loadtest:/scripts \
+  grafana/k6 run --quiet \
+    --summary-trend-stats "avg,min,med,p(90),p(95),p(99),max" \
+    /scripts/feed_hot_anonymous.js
 ```
 
 登录态 Feed：
@@ -143,6 +187,9 @@ docker run --rm --network host \
 | 登录态 latest Feed 优化前 | 50 | 2m | 107.58 | 463.33ms | 614.91ms | 685.61ms | 0.00% | N+1 回填，baseline commit `48bca04`，`SLEEP=0` |
 | 登录态 latest Feed | 50 | 2m | 676.49 | 72.71ms | 106.90ms | 126.44ms | 0.00% | 批量回填作者/标签/图片/互动状态，`SLEEP=0` |
 | 混合 Feed | 100 | 2m | 1293.32 | 75.47ms | 232.03ms | 291.44ms | 0.00% | latest/hot/following 混合，`SLEEP=0` |
+| 匿名 hot Feed | - | - | - | - | - | - | - | 已补独立 k6 脚本，待下次同环境补跑 |
+
+说明：2026-06-01 本地复核时，Windows 机器可用 Docker CLI，但 Docker daemon 未启动，Docker 版 k6 未能执行；因此本次没有新增本机压测数据。上表只保留 2026-05-31 在云服务器上真实执行过的结果，未补跑的 hot 单场景不填数字。
 
 ## 前后对比
 
@@ -166,6 +213,12 @@ docker run --rm --network host \
 /root/ripple-note/reports/loadtest/feed_mixed_100vu_2m.txt
 ```
 
+后续新增结果建议按以下命名保存：
+
+```text
+reports/loadtest/<scenario>_<vus>vu_<duration>_<timestamp>.txt
+```
+
 ## 已做优化
 
 - Feed 使用游标分页，避免 `OFFSET` 在深分页和数据变更下的性能与一致性问题。
@@ -180,6 +233,7 @@ docker run --rm --network host \
 - k6 与服务部署在同一台机器时会共享 CPU、内存和网络栈，结果更适合做项目量化和优化对比，不应宣称为生产 SLA。
 - 若从公网压测，需要确认云安全组已开放 `18080`，并区分公网网络延迟与服务端处理延迟。
 - 本次压测使用 `SLEEP=0`，表示每个虚拟用户完成一次请求后立即发起下一次请求，偏向容量压测，不代表普通用户真实停留时间。
+- 本地复跑需要 Docker daemon 正常运行，或者直接安装 k6 CLI。
 
 ## 简历表述草稿
 

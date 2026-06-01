@@ -142,6 +142,81 @@ func TestReviewFlowRejectsNonAdmin(t *testing.T) {
 	}
 }
 
+func TestAdminNotesSearchFiltersByStatusAndKeyword(t *testing.T) {
+	t.Parallel()
+
+	router, db := newReviewTestRouter(t)
+	adminToken := registerAdmin(t, router, db, "notes-admin@example.com", "secret123", "NotesAdmin")
+	authorToken := registerAndLogin(t, router, "notes-author@example.com", "secret123", "NotesAuthor")
+
+	goNoteID := publishNoteForReview(t, router, authorToken, "Go backend internship", "Feed and review workflow")
+	rejectedNoteID := publishNoteForReview(t, router, authorToken, "Go rejected draft", "Should not match published")
+	javaNoteID := publishNoteForReview(t, router, authorToken, "Java backend notes", "Should not match keyword")
+
+	if err := db.Model(&note.Note{}).Where("id = ?", goNoteID).Update("status", note.StatusPublished).Error; err != nil {
+		t.Fatalf("publish go note: %v", err)
+	}
+	if err := db.Model(&note.Note{}).Where("id = ?", rejectedNoteID).Update("status", note.StatusRejected).Error; err != nil {
+		t.Fatalf("reject note: %v", err)
+	}
+	if err := db.Model(&note.Note{}).Where("id = ?", javaNoteID).Update("status", note.StatusPublished).Error; err != nil {
+		t.Fatalf("publish java note: %v", err)
+	}
+
+	resp := getJSON(t, router, "/api/admin/notes?status=published&q=go", "Bearer "+adminToken)
+	if resp.Status != http.StatusOK {
+		t.Fatalf("expected admin notes status 200, got %d: %s", resp.Status, string(resp.RawBody))
+	}
+
+	list := decodeData[review.AdminNoteListDTO](t, resp.Data)
+	if list.Total != 1 {
+		t.Fatalf("expected total 1, got %d", list.Total)
+	}
+	if len(list.Items) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(list.Items))
+	}
+	item := list.Items[0]
+	if item.ID != goNoteID {
+		t.Fatalf("expected only go note %d, got %d", goNoteID, item.ID)
+	}
+	if item.Status != note.StatusPublished {
+		t.Fatalf("expected published status, got %s", item.Status)
+	}
+	if item.Title != "Go backend internship" {
+		t.Fatalf("expected title from note, got %q", item.Title)
+	}
+	if item.ReviewTaskID == nil {
+		t.Fatal("expected review task id in admin note item")
+	}
+}
+
+func TestAdminNotesRejectsNonAdmin(t *testing.T) {
+	t.Parallel()
+
+	router, _ := newReviewTestRouter(t)
+	token := registerAndLogin(t, router, "notes-user@example.com", "secret123", "NotesUser")
+
+	resp := getJSON(t, router, "/api/admin/notes", "Bearer "+token)
+	if resp.Status != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d", resp.Status)
+	}
+}
+
+func TestAdminNotesRejectsInvalidStatus(t *testing.T) {
+	t.Parallel()
+
+	router, db := newReviewTestRouter(t)
+	adminToken := registerAdmin(t, router, db, "notes-invalid-admin@example.com", "secret123", "NotesInvalidAdmin")
+
+	resp := getJSON(t, router, "/api/admin/notes?status=unknown", "Bearer "+adminToken)
+	if resp.Status != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", resp.Status, string(resp.RawBody))
+	}
+	if resp.Error == nil || resp.Error.Code != "invalid_status" {
+		t.Fatalf("expected invalid_status, got %#v", resp.Error)
+	}
+}
+
 func TestReviewFlowRejectsInvalidDecision(t *testing.T) {
 	t.Parallel()
 
@@ -202,8 +277,8 @@ func newReviewTestRouter(t *testing.T) (http.Handler, *gorm.DB) {
 	reviewRepo := review.NewRepository(db)
 	reviewService := review.NewService(reviewRepo, noteRepo)
 	reviewHandler := review.NewHandler(reviewService)
-		testAuthorInfo := &testAuthorInfoProvider{repo: userRepo, db: db}
-		internalHandler := review.NewInternalHandler(reviewRepo, noteRepo, testAuthorInfo)
+	testAuthorInfo := &testAuthorInfoProvider{repo: userRepo, db: db}
+	internalHandler := review.NewInternalHandler(reviewRepo, noteRepo, testAuthorInfo)
 
 	authorProvider := &testAuthorProvider{repo: userRepo}
 	noteService := note.NewService(noteRepo, authorProvider, reviewService, nil)
@@ -211,13 +286,13 @@ func newReviewTestRouter(t *testing.T) (http.Handler, *gorm.DB) {
 	noteHandler := note.NewHandler(noteService, optionalAuth)
 
 	router := httpapi.NewRouter(httpapi.RouterOptions{
-		Logger:        observability.NewDiscardLogger(),
-		AccountRoutes: accountHandler,
-		NoteRoutes:    noteHandler,
-		ReviewRoutes:  reviewHandler,
-		JWTManager:      jwtManager,
-			InternalRoutes: internalHandler,
-			InternalToken:  "local-dev-internal-token",
+		Logger:         observability.NewDiscardLogger(),
+		AccountRoutes:  accountHandler,
+		NoteRoutes:     noteHandler,
+		ReviewRoutes:   reviewHandler,
+		JWTManager:     jwtManager,
+		InternalRoutes: internalHandler,
+		InternalToken:  "local-dev-internal-token",
 	})
 
 	return router, db
@@ -293,10 +368,23 @@ func registerAdmin(t *testing.T, handler http.Handler, db *gorm.DB, email, passw
 	return login(t, handler, email, password)
 }
 
+func publishNoteForReview(t *testing.T, handler http.Handler, token, title, body string) uint64 {
+	t.Helper()
+	resp := postJSON(t, handler, "/api/notes", map[string]any{
+		"title": title,
+		"body":  body,
+	}, "Bearer "+token)
+	if resp.Status != http.StatusCreated {
+		t.Fatalf("publish note: expected 201, got %d: %s", resp.Status, string(resp.RawBody))
+	}
+	published := decodeData[note.NoteDTO](t, resp.Data)
+	return published.ID
+}
+
 type apiTestResponse struct {
-	Status  int
-	Data    json.RawMessage `json:"data"`
-	Error   *struct {
+	Status int
+	Data   json.RawMessage `json:"data"`
+	Error  *struct {
 		Code    string `json:"code"`
 		Message string `json:"message"`
 	} `json:"error"`
@@ -362,7 +450,6 @@ func decodeData[T any](t *testing.T, data json.RawMessage) T {
 	}
 	return value
 }
-
 
 func TestInternalAPIPullPendingAndGetContext(t *testing.T) {
 	t.Parallel()

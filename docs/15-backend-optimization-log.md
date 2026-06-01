@@ -265,6 +265,50 @@
 - 公开 DTO 和内部/current user DTO 要分开，不能为了省事复用含敏感字段的结构。
 - stateless JWT logout 只能让客户端丢弃 token，不能让已签发 token 在过期前服务端失效；面试中要主动说明这个边界。
 
+### Stage I: Complete Admin Note Search
+
+目标：补齐 `GET /api/admin/notes`，让管理后台不仅能处理 review task，也能按内容状态检索 note，支撑“内容状态流与治理工作流”的简历叙事。
+
+实现范围：
+
+- 支持管理员按 `status` 过滤：
+  - `pending_review`
+  - `published`
+  - `rejected`
+  - `removed`
+- 支持 `q` 关键词在 title/body 上做轻量模糊匹配。
+- 支持 `limit/offset` 分页，沿用后台列表类接口的 offset 方案。
+- 返回 note 基础信息、状态、可见性、review_task_id、互动计数和时间字段。
+- 非管理员访问仍由 admin middleware 返回 `403 forbidden`。
+
+主要实现：
+
+- `review.AdminNoteDTO` / `AdminNoteListDTO`：后台内容列表专用 DTO。
+- `review.Repository.SearchNotes`：基于 GORM 组合 `status` 和 `q` 查询。
+- `review.Service.SearchNotes`：校验 status、归一化分页参数、转换 DTO。
+- `review.Handler.SearchNotes`：新增 `/api/admin/notes` 路由。
+
+设计取舍：
+
+- 当前只做后台治理需要的轻量检索，不引入 Elasticsearch、倒排索引或复杂搜索平台。
+- 关键词查询使用 MySQL `LIKE`，适合后台低频检索和学习项目演示；如数据规模继续扩大，可作为 P1 延伸到搜索服务。
+- `status` 使用白名单校验，避免管理后台传错状态时默默返回空数据。
+
+关键测试：
+
+- `TestAdminNotesSearchFiltersByStatusAndKeyword`
+  - 验证 `status=published&q=go` 只返回匹配状态和关键词的内容。
+- `TestAdminNotesRejectsNonAdmin`
+  - 验证普通用户不能访问后台内容列表。
+- `TestAdminNotesRejectsInvalidStatus`
+  - 验证非法状态返回 `400 invalid_status`。
+
+复习重点：
+
+- 后台查询接口要先定义清晰过滤条件和状态枚举，避免把“所有查询需求”都塞进一个无边界接口。
+- 状态流项目里，后台列表的价值是让 pending/published/rejected/removed 可观察，而不是做复杂搜索引擎。
+- Handler -> Service -> Repository 分层仍然适用于后台接口：HTTP 参数、业务校验、数据库查询各在各层。
+
 ## Implementation Notes
 
 ### Package Boundaries
@@ -329,6 +373,16 @@ PATCH /api/users/me
   -> validate profile fields
   -> update users.nickname/avatar_url/bio
   -> return current user DTO
+```
+
+后台内容检索：
+
+```text
+GET /api/admin/notes?status=published&q=go
+  -> require admin
+  -> validate status filter
+  -> query notes by status and title/body keyword
+  -> return admin note list DTO
 ```
 
 ### Failure Policy

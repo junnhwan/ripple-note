@@ -3,8 +3,11 @@ package review
 import (
 	"context"
 	"errors"
+	"strings"
 
 	"gorm.io/gorm"
+
+	"ripple-note/internal/note"
 )
 
 var ErrTaskNotFound = errors.New("review task not found")
@@ -53,6 +56,28 @@ func (r *Repository) List(ctx context.Context, status string, limit, offset int)
 		return nil, 0, err
 	}
 	return tasks, total, nil
+}
+
+func (r *Repository) SearchNotes(ctx context.Context, status, keyword string, limit, offset int) ([]*note.Note, int64, error) {
+	var notes []*note.Note
+	var total int64
+
+	query := r.db.WithContext(ctx).Model(&note.Note{})
+	if status != "" {
+		query = query.Where("status = ?", status)
+	}
+	if keyword = strings.TrimSpace(keyword); keyword != "" {
+		like := "%" + strings.ToLower(keyword) + "%"
+		query = query.Where("LOWER(title) LIKE ? OR LOWER(body) LIKE ?", like, like)
+	}
+
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	if err := query.Order("id DESC").Limit(limit).Offset(offset).Find(&notes).Error; err != nil {
+		return nil, 0, err
+	}
+	return notes, total, nil
 }
 
 func (r *Repository) UpdateTask(ctx context.Context, tx *gorm.DB, task *ReviewTask) error {

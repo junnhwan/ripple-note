@@ -188,6 +188,66 @@ paths:
           $ref: "#/components/responses/Error"
         "404":
           $ref: "#/components/responses/Error"
+  /api/admin/notes:
+    get:
+      summary: Search notes for admin review console
+      description: |
+        管理员按内容状态和关键词检索内容。该接口用于轻量治理后台，
+        不是全文搜索系统。
+      operationId: searchAdminNotes
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: status
+          required: false
+          schema:
+            type: string
+            enum:
+              - pending_review
+              - published
+              - rejected
+              - removed
+          description: Optional note status filter.
+        - in: query
+          name: q
+          required: false
+          schema:
+            type: string
+          description: Optional keyword matched against title and body.
+        - in: query
+          name: limit
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - in: query
+          name: offset
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        "200":
+          description: Admin note list
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessResponse"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AdminNoteList"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
 components:
   securitySchemes:
     bearerAuth:
@@ -371,6 +431,87 @@ components:
         logged_out:
           type: boolean
           example: true
+    AdminNote:
+      type: object
+      required:
+        - id
+        - author_id
+        - title
+        - body
+        - status
+        - visibility
+        - likes_count
+        - favorites_count
+        - comments_count
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: integer
+          format: int64
+          example: 1001
+        author_id:
+          type: integer
+          format: int64
+          example: 2001
+        title:
+          type: string
+          example: Go backend internship
+        body:
+          type: string
+          example: Feed and review workflow
+        status:
+          type: string
+          enum:
+            - pending_review
+            - published
+            - rejected
+            - removed
+        visibility:
+          type: string
+          enum:
+            - public
+            - private
+        review_task_id:
+          type: integer
+          format: int64
+          nullable: true
+          example: 3001
+        likes_count:
+          type: integer
+          format: int64
+          example: 12
+        favorites_count:
+          type: integer
+          format: int64
+          example: 3
+        comments_count:
+          type: integer
+          format: int64
+          example: 5
+        published_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    AdminNoteList:
+      type: object
+      required:
+        - items
+        - total
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminNote"
+        total:
+          type: integer
+          format: int64
     Session:
       type: object
       required:

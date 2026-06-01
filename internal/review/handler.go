@@ -26,6 +26,7 @@ func (h *Handler) RegisterRoutes(router gin.IRouter, requireAuth gin.HandlerFunc
 	admin.GET("/review/tasks", h.List)
 	admin.GET("/review/tasks/:taskId", h.Get)
 	admin.PUT("/review/tasks/:taskId/decision", h.Decide)
+	admin.GET("/notes", h.SearchNotes)
 }
 
 func (h *Handler) requireAdmin(c *gin.Context) {
@@ -46,6 +47,21 @@ func (h *Handler) List(c *gin.Context) {
 	result, err := h.service.List(c.Request.Context(), status, limit, offset)
 	if err != nil {
 		httpapi.Error(c, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
+
+	httpapi.OK(c, result)
+}
+
+func (h *Handler) SearchNotes(c *gin.Context) {
+	status := c.Query("status")
+	keyword := c.Query("q")
+	limit := parseQueryInt(c, "limit", 20)
+	offset := parseQueryInt(c, "offset", 0)
+
+	result, err := h.service.SearchNotes(c.Request.Context(), status, keyword, limit, offset)
+	if err != nil {
+		h.writeError(c, err)
 		return
 	}
 
@@ -113,6 +129,8 @@ func (h *Handler) writeError(c *gin.Context, err error) {
 		httpapi.Error(c, http.StatusBadRequest, "invalid_decision", "decision must be approve or reject")
 	case errors.Is(err, ErrAlreadyDecided):
 		httpapi.Error(c, http.StatusConflict, "already_decided", "review task has already been decided")
+	case errors.Is(err, ErrInvalidStatus):
+		httpapi.Error(c, http.StatusBadRequest, "invalid_status", "status filter is invalid")
 	default:
 		httpapi.Error(c, http.StatusInternalServerError, "internal_error", "internal server error")
 	}

@@ -16,6 +16,7 @@ import (
 var (
 	ErrInvalidDecision = errors.New("invalid decision")
 	ErrAlreadyDecided  = errors.New("task already decided")
+	ErrInvalidStatus   = errors.New("invalid status")
 )
 
 // CacheInvalidator invalidates caches after review decisions.
@@ -96,12 +97,44 @@ func (s *Service) List(ctx context.Context, status string, limit, offset int) (T
 	return TaskListDTO{Items: items, Total: total}, nil
 }
 
+func (s *Service) SearchNotes(ctx context.Context, status, keyword string, limit, offset int) (AdminNoteListDTO, error) {
+	if !isValidNoteStatusFilter(status) {
+		return AdminNoteListDTO{}, ErrInvalidStatus
+	}
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	notes, total, err := s.repo.SearchNotes(ctx, status, keyword, limit, offset)
+	if err != nil {
+		return AdminNoteListDTO{}, err
+	}
+
+	items := make([]AdminNoteDTO, 0, len(notes))
+	for _, n := range notes {
+		items = append(items, toAdminNoteDTO(n))
+	}
+	return AdminNoteListDTO{Items: items, Total: total}, nil
+}
+
 func (s *Service) GetByID(ctx context.Context, id uint64) (TaskDTO, error) {
 	task, err := s.repo.FindByID(ctx, nil, id)
 	if err != nil {
 		return TaskDTO{}, err
 	}
 	return toTaskDTO(task), nil
+}
+
+func isValidNoteStatusFilter(status string) bool {
+	switch status {
+	case "", note.StatusPendingReview, note.StatusPublished, note.StatusRejected, note.StatusRemoved:
+		return true
+	default:
+		return false
+	}
 }
 
 type DecideInput struct {
@@ -223,5 +256,23 @@ func toTaskDTO(task *ReviewTask) TaskDTO {
 		DecidedAt:      task.DecidedAt,
 		CreatedAt:      task.CreatedAt,
 		UpdatedAt:      task.UpdatedAt,
+	}
+}
+
+func toAdminNoteDTO(n *note.Note) AdminNoteDTO {
+	return AdminNoteDTO{
+		ID:             n.ID,
+		AuthorID:       n.AuthorID,
+		Title:          n.Title,
+		Body:           n.Body,
+		Status:         n.Status,
+		Visibility:     n.Visibility,
+		ReviewTaskID:   n.ReviewTaskID,
+		LikesCount:     n.LikesCount,
+		FavoritesCount: n.FavoritesCount,
+		CommentsCount:  n.CommentsCount,
+		PublishedAt:    n.PublishedAt,
+		CreatedAt:      n.CreatedAt,
+		UpdatedAt:      n.UpdatedAt,
 	}
 }

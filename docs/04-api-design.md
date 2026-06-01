@@ -166,6 +166,21 @@ Cursor response:
 | `PUT` | `/api/admin/review/tasks/{taskId}/decision` | Admin | Approve, reject, remove, or request manual review |
 | `GET` | `/api/admin/notes` | Admin | Search notes by status |
 
+Admin note search:
+
+```text
+GET /api/admin/notes?status=published&q=go&limit=20&offset=0
+```
+
+Supported status filters:
+
+- `pending_review`
+- `published`
+- `rejected`
+- `removed`
+
+Response items expose note governance fields such as `status`, `visibility`, `review_task_id`, counters, and timestamps. The endpoint is for a compact admin review console, not a full search engine.
+
 Admin decision request:
 
 ```json

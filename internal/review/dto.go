@@ -24,6 +24,27 @@ type TaskListDTO struct {
 	Total int64     `json:"total"`
 }
 
+type AdminNoteDTO struct {
+	ID             uint64     `json:"id"`
+	AuthorID       uint64     `json:"author_id"`
+	Title          string     `json:"title"`
+	Body           string     `json:"body"`
+	Status         string     `json:"status"`
+	Visibility     string     `json:"visibility"`
+	ReviewTaskID   *uint64    `json:"review_task_id,omitempty"`
+	LikesCount     uint64     `json:"likes_count"`
+	FavoritesCount uint64     `json:"favorites_count"`
+	CommentsCount  uint64     `json:"comments_count"`
+	PublishedAt    *time.Time `json:"published_at,omitempty"`
+	CreatedAt      time.Time  `json:"created_at"`
+	UpdatedAt      time.Time  `json:"updated_at"`
+}
+
+type AdminNoteListDTO struct {
+	Items []AdminNoteDTO `json:"items"`
+	Total int64          `json:"total"`
+}
+
 type DecisionInput struct {
 	Decision string `json:"decision"`
 	Reason   string `json:"reason"`

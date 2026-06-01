@@ -1000,3 +1000,62 @@ DELETE /api/sessions/current
 
 - 管理后台继续补 `GET /api/admin/notes`，完善内容治理闭环。
 - 后续如接入 Redis profile cache，应在 `PATCH /api/users/me` 成功后删除 `user:profile:{id}`。
+
+## 2026-06-01 Optimization Stage I: Admin Note Search
+
+### Stage Goal
+
+补齐 API 文档中已经声明的 `GET /api/admin/notes`，让管理后台能按状态和关键词检索内容，完善内容治理闭环。
+
+### Files Modified
+
+- `internal/review/dto.go`: 新增 `AdminNoteDTO`、`AdminNoteListDTO`。
+- `internal/review/handler.go`: 新增 `GET /api/admin/notes` 路由和 handler。
+- `internal/review/service.go`: 新增 `SearchNotes`，校验状态过滤条件并组装后台 DTO。
+- `internal/review/repository.go`: 新增 `SearchNotes` GORM 查询。
+- `internal/review/handler_test.go`: 用 TDD 覆盖管理员检索、非管理员拒绝、非法状态拒绝。
+- `docs/04-api-design.md`: 补充后台内容检索查询参数和状态枚举。
+- `docs/15-backend-optimization-log.md`: 追加 Stage I 复盘。
+- `docs/openapi.yaml`: 同步后台内容检索 API 契约。
+
+### Go Backend Notes
+
+- **后台接口边界**：`GET /api/admin/notes` 只解决治理后台的低频检索，不扩成搜索平台。
+- **状态白名单**：service 层校验 `pending_review/published/rejected/removed`，非法状态返回 `400 invalid_status`，避免错误查询静默返回空列表。
+- **轻量关键词查询**：当前用 `LOWER(title) LIKE ? OR LOWER(body) LIKE ?`，适合后台低频查询；如果后续做大规模搜索，再考虑 ES 或专门搜索服务。
+- **后台 DTO**：返回状态、可见性、review_task_id、计数和时间字段，方便管理员理解内容生命周期。
+
+### Java Spring Boot Comparison
+
+- `SearchNotes` 类似 Spring Data JPA Specification 或 MyBatis 动态 SQL，根据可选条件拼接查询。
+- status 白名单类似 Java enum 参数校验，避免 controller 直接把任意字符串传入 DAO。
+- Admin DTO 类似后台管理 VO，和前台 NoteDTO 区分，避免前后台响应结构互相牵制。
+
+### Key Code Paths
+
+```text
+GET /api/admin/notes?status=published&q=go
+  -> AuthRequired
+  -> review.Handler.requireAdmin
+  -> review.Handler.SearchNotes
+  -> review.Service.SearchNotes
+  -> review.Repository.SearchNotes
+  -> review.AdminNoteListDTO
+```
+
+### Common Pitfalls
+
+- 不要把后台内容检索讲成“搜索系统”；当前只是 MySQL 条件查询。
+- 不要省略 admin 权限校验；后台接口必须走 `requireAdmin`。
+- 不要对非法 status 静默返回空列表，面试里这属于 API 契约不清。
+- 不要直接复用前台 NoteDTO，后台需要 review_task_id 和治理状态字段。
+
+### Verification
+
+- `go test ./internal/review -run "TestAdminNotes" -v` passed。
+- `go test ./internal/review -v` passed。
+- `go test ./...` passed。
+
+### Follow-Up
+
+- 管理决策接口文档还写了 `remove/request manual review`，当前代码只支持 approve/reject。后续可选择实现 `remove`，但不要扩成复杂工作流。

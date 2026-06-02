@@ -1141,3 +1141,54 @@ remove
 
 - 可继续扫一遍 API contract，找出仍然“文档已声明但实现不完整”的后台接口。
 - 最终简历可以把治理状态流写成：发布创建审核任务、管理员 approve/reject/remove、状态变更与 outbox 同事务落库、缓存提交后失效。
+
+## 2026-06-02 Optimization Stage K: Resume Backend Rewrite
+
+### Stage Goal
+
+把 `resume.md` 改成更接近后端实习简历项目经历的写法，参考 `D:\intern\cv-other` 中 Go/后端简历图片的结构和表达密度。
+
+### Reference Style Notes
+
+参考图里的后端项目条目通常有这些特征：
+
+- 项目标题旁边写角色、时间或 GitHub 链接。
+- 技术栈单独一行，避免散落在正文里。
+- 项目简介控制为一段，说明业务目标和系统范围。
+- 个人职责或技术亮点用项目符号列出，每条以粗体技术关键词开头。
+- 少写“我学习了什么”，多写“我负责实现了什么、解决了什么问题、有什么量化结果”。
+
+### Files Modified
+
+- `resume.md`: 重写为“项目名 / 角色时间 / 技术栈 / 项目简介 / 个人职责与技术亮点 / 可展开追问”的后端简历结构。
+- `docs/15-backend-optimization-log.md`: 记录简历改写依据和取舍。
+
+### Resume Wording Decisions
+
+- 使用“内容社区与 Feed 分发平台”，不把项目描述成单纯 note app。
+- 聚焦 Go 后端主线：Gin、GORM、MySQL、Redis、RabbitMQ、JWT、Docker Compose。
+- 不夸大未实现能力：不写 Redis token blacklist、复杂推荐、微服务、Kafka/Canal、AI Agent。
+- 量化只引用已有压测证据：5 万笔记、60 万互动、RPS、P95、错误率。
+- 将“OpenAPI 文档”改为更准确的“API 设计文档”，因为当前 `docs/openapi.yaml` 还没有覆盖所有路由。
+
+### Java Spring Boot Comparison
+
+- 简历 bullet 的写法类似 Java 后端简历中常见的“负责 xxx 模块，基于 xxx 实现 xxx，解决 xxx 问题”的表达。
+- Go 项目不需要为了显得复杂而引入 Spring 式庞大工程术语，应突出清晰分层、事务边界、缓存一致性和异步事件。
+- 对比 Java 项目的亮点时，最好写“借鉴统一响应、限流、缓存、MQ 事件一致性”，不要写“复刻某某项目”。
+
+### Common Pitfalls
+
+- 不要把 README 里的解释性长段落直接放进简历，招聘方更关心职责、技术点和结果。
+- 不要把前端 demo 写成核心卖点，当前定位是 Go 后端实习项目。
+- 不要为了显得高级写不存在的技术，例如 token 黑名单、推荐系统、微服务、Kubernetes。
+- 不要只堆技术名词，每条 bullet 都要能对应到代码、文档或测试证据。
+
+### Verification
+
+- 已基于当前 `README.md`、`docs/12-load-test.md`、`docs/15-backend-optimization-log.md` 和已实现代码事实核对简历内容。
+
+### Follow-Up
+
+- 后续如果补齐全量 OpenAPI，可以把简历里的“API 设计文档”改回更强的“OpenAPI 契约文档”。
+- 如果继续做 backend P1，可以优先考虑 Outbox replay CLI 或更多后台治理检索条件；这些比继续扩前端更贴合后端简历主线。

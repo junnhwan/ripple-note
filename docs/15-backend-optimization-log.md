@@ -355,6 +355,25 @@
 - 下架属于内容生命周期治理，应使用 `removed` 状态而不是物理删除，便于后台审计、事件追踪和简历项目讲解。
 - 事件 payload 要携带决策结果和最终 note status，consumer 不能只根据 topic 猜测业务含义。
 
+### Stage K: Rewrite Resume Project Entry
+
+目标：将 `resume.md` 从 README 式项目说明改成后端简历项目经历条目，贴近 `D:\intern\cv-other` 中 Go/后端简历参考图的表达密度和结构。
+
+参考图提炼：
+
+- 标题行使用“项目名 + 角色/时间 + GitHub 链接”。
+- 技术栈单独成行，优先展示后端核心栈。
+- 项目简介控制在一段内，说明业务闭环和架构边界。
+- 个人职责/技术亮点使用高密度 bullet，每条以粗体关键词开头。
+- 重点突出后端能力：分层架构、状态流、缓存一致性、MQ/Outbox、限流、幂等、压测指标。
+
+改写取舍：
+
+- 保留真实压测数据：5 万笔记、60 万互动、RPS、P95、错误率。
+- 不写当前未实现的 Redis token 黑名单、复杂推荐、微服务拆分、Kafka/Canal 或 AI Agent 能力。
+- 将“OpenAPI 文档”弱化为“API 设计文档”，避免把当前未全量覆盖的 OpenAPI 说成完整契约。
+- 保留“可展开追问”，方便面试时主动引导到 Feed、Outbox、Redis、幂等和 Go 分层边界。
+
 ## Implementation Notes
 
 ### Package Boundaries

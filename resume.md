@@ -1,4 +1,8 @@
-## 知涟 - 内容社区与 Feed 分发平台
+# Resume Version Policy
+
+以后修改简历时，不要覆盖或删除已有版本；请在文件末尾追加新版，并使用 `v0.x.x` 标识不同版本，方便对比和回滚。
+
+## v0.1.0 - 知涟 - 内容社区与 Feed 分发平台
 
 个人项目 / 后端开发｜2026.05 - 至今
 GitHub: https://github.com/junnhwan/ripple-note

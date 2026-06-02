@@ -46,7 +46,7 @@
 ### 审核流程 — 平台状态机 + 后台决策
 
 - 内容发布时在事务内创建 `review_task`，内容先进入 `pending_review`，不会进入公共 Feed。
-- 管理员审核时在同一事务内更新 task 状态 + 内容状态 + 写入审计事件（`review_task_events`）和 `note.review_decided` outbox event，事务提交后失效缓存。
+- 管理员审核 `approve/reject/remove` 时在同一事务内更新 task 状态 + 内容状态 + 写入审计事件（`review_task_events`）和 `note.review_decided` outbox event，事务提交后失效缓存。
 - 审核决策使用状态检查（若已决策则返回 `ErrAlreadyDecided`），防止重复操作。
 
 ### 认证鉴权 — JWT + 中间件分层

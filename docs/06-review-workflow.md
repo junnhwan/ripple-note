@@ -14,7 +14,7 @@ The platform owns final note status. The Agent submits evidence and a recommenda
 | `pending_review` | Submitted and waiting for review |
 | `published` | Visible in public feed |
 | `rejected` | Not visible, user can see reason |
-| `removed` | Previously visible but removed by admin |
+| `removed` | Removed by author or admin and hidden from public reads |
 
 ## Review Task Status
 
@@ -26,6 +26,7 @@ The platform owns final note status. The Agent submits evidence and a recommenda
 | `manual_required` | Agent requested human review |
 | `admin_approved` | Admin approved |
 | `admin_rejected` | Admin rejected |
+| `admin_removed` | Admin removed or took down the content |
 
 ## V1 Decision Policy
 
@@ -35,6 +36,7 @@ For demo simplicity:
 - Agent `reject` rejects the note automatically.
 - Agent `manual_review` leaves the note pending for admin.
 - Admin can override any non-final or final Agent decision.
+- Admin `remove` can also take down content after a previous admin approval; a repeated `remove` is treated as already decided.
 
 This creates a clear automated demo. If stricter governance is needed later, Agent decisions can become recommendations only.
 
@@ -67,6 +69,7 @@ Admin reject
   -> notes.status = rejected
 
 Admin remove
+  -> review_tasks.status = admin_removed
   -> notes.status = removed
 ```
 

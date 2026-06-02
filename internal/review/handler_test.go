@@ -130,6 +130,117 @@ func TestReviewFlowReject(t *testing.T) {
 	}
 }
 
+func TestReviewFlowRemove(t *testing.T) {
+	t.Parallel()
+
+	router, db := newReviewTestRouter(t)
+	adminToken := registerAdmin(t, router, db, "remove-admin@example.com", "secret123", "RemoveAdmin")
+	authorToken := registerAndLogin(t, router, "remove-author@example.com", "secret123", "RemoveAuthor")
+
+	noteID := publishNoteForReview(t, router, authorToken, "Remove me", "Needs takedown")
+	listResp := getJSON(t, router, "/api/admin/review/tasks", "Bearer "+adminToken)
+	taskList := decodeData[review.TaskListDTO](t, listResp.Data)
+	task := taskList.Items[0]
+
+	decideResp := putJSON(t, router, fmt.Sprintf("/api/admin/review/tasks/%d/decision", task.ID), map[string]any{
+		"decision": "remove",
+		"reason":   "policy takedown",
+	}, "Bearer "+adminToken)
+	if decideResp.Status != http.StatusOK {
+		t.Fatalf("remove: expected 200, got %d: %s", decideResp.Status, string(decideResp.RawBody))
+	}
+	decided := decodeData[review.TaskDTO](t, decideResp.Data)
+	if decided.Status != review.TaskStatusAdminRemoved {
+		t.Fatalf("expected status %s, got %s", review.TaskStatusAdminRemoved, decided.Status)
+	}
+
+	var updatedNote note.Note
+	if err := db.First(&updatedNote, noteID).Error; err != nil {
+		t.Fatalf("find note: %v", err)
+	}
+	if updatedNote.Status != note.StatusRemoved {
+		t.Fatalf("expected note status %s, got %s", note.StatusRemoved, updatedNote.Status)
+	}
+
+	detailResp := getJSON(t, router, fmt.Sprintf("/api/notes/%d", noteID), "")
+	if detailResp.Status != http.StatusNotFound {
+		t.Fatalf("removed note detail: expected 404, got %d: %s", detailResp.Status, string(detailResp.RawBody))
+	}
+}
+
+func TestReviewFlowRemovePublishedNote(t *testing.T) {
+	t.Parallel()
+
+	router, db := newReviewTestRouter(t)
+	adminToken := registerAdmin(t, router, db, "published-remove-admin@example.com", "secret123", "PublishedRemoveAdmin")
+	authorToken := registerAndLogin(t, router, "published-remove-author@example.com", "secret123", "PublishedRemoveAuthor")
+
+	noteID := publishNoteForReview(t, router, authorToken, "Published remove me", "Already visible content")
+	listResp := getJSON(t, router, "/api/admin/review/tasks", "Bearer "+adminToken)
+	taskList := decodeData[review.TaskListDTO](t, listResp.Data)
+	task := taskList.Items[0]
+
+	approveResp := putJSON(t, router, fmt.Sprintf("/api/admin/review/tasks/%d/decision", task.ID), map[string]any{
+		"decision": "approve",
+		"reason":   "initial approval",
+	}, "Bearer "+adminToken)
+	if approveResp.Status != http.StatusOK {
+		t.Fatalf("approve: expected 200, got %d: %s", approveResp.Status, string(approveResp.RawBody))
+	}
+
+	removeResp := putJSON(t, router, fmt.Sprintf("/api/admin/review/tasks/%d/decision", task.ID), map[string]any{
+		"decision": "remove",
+		"reason":   "post-publish takedown",
+	}, "Bearer "+adminToken)
+	if removeResp.Status != http.StatusOK {
+		t.Fatalf("remove published note: expected 200, got %d: %s", removeResp.Status, string(removeResp.RawBody))
+	}
+	removed := decodeData[review.TaskDTO](t, removeResp.Data)
+	if removed.Status != review.TaskStatusAdminRemoved {
+		t.Fatalf("expected status %s, got %s", review.TaskStatusAdminRemoved, removed.Status)
+	}
+
+	var updatedNote note.Note
+	if err := db.First(&updatedNote, noteID).Error; err != nil {
+		t.Fatalf("find note: %v", err)
+	}
+	if updatedNote.Status != note.StatusRemoved {
+		t.Fatalf("expected note status %s, got %s", note.StatusRemoved, updatedNote.Status)
+	}
+}
+
+func TestReviewFlowRejectsRepeatedRemove(t *testing.T) {
+	t.Parallel()
+
+	router, db := newReviewTestRouter(t)
+	adminToken := registerAdmin(t, router, db, "repeat-remove-admin@example.com", "secret123", "RepeatRemoveAdmin")
+	authorToken := registerAndLogin(t, router, "repeat-remove-author@example.com", "secret123", "RepeatRemoveAuthor")
+
+	publishNoteForReview(t, router, authorToken, "Remove once", "Duplicate takedown")
+	listResp := getJSON(t, router, "/api/admin/review/tasks", "Bearer "+adminToken)
+	taskList := decodeData[review.TaskListDTO](t, listResp.Data)
+	task := taskList.Items[0]
+
+	firstResp := putJSON(t, router, fmt.Sprintf("/api/admin/review/tasks/%d/decision", task.ID), map[string]any{
+		"decision": "remove",
+		"reason":   "first takedown",
+	}, "Bearer "+adminToken)
+	if firstResp.Status != http.StatusOK {
+		t.Fatalf("first remove: expected 200, got %d: %s", firstResp.Status, string(firstResp.RawBody))
+	}
+
+	secondResp := putJSON(t, router, fmt.Sprintf("/api/admin/review/tasks/%d/decision", task.ID), map[string]any{
+		"decision": "remove",
+		"reason":   "duplicate takedown",
+	}, "Bearer "+adminToken)
+	if secondResp.Status != http.StatusConflict {
+		t.Fatalf("second remove: expected 409, got %d: %s", secondResp.Status, string(secondResp.RawBody))
+	}
+	if secondResp.Error == nil || secondResp.Error.Code != "already_decided" {
+		t.Fatalf("expected already_decided error, got %#v", secondResp.Error)
+	}
+}
+
 func TestReviewFlowRejectsNonAdmin(t *testing.T) {
 	t.Parallel()
 

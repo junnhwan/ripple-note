@@ -180,7 +180,7 @@ Payload:
 | Producer | admin review decision；后续可扩展为内容分析 callback |
 | Aggregate | `note` |
 | Timing | 内容状态被决策后 |
-| Current status | admin 决策已实现 |
+| Current status | admin `approve/reject/remove` 决策已实现 |
 | Consumers | cache invalidation、notification、audit、stats |
 
 Payload:
@@ -199,7 +199,8 @@ Payload:
 
 语义：
 
-- 当前已实现 admin `approve/reject` 决策事件。
+- 当前已实现 admin `approve/reject/remove` 决策事件。
+- `remove` 事件表示内容进入 `removed`，可用于通知、审计、统计或后续事件驱动缓存失效。
 - `actor_type` 当前为 `admin`，后续接入内容分析扩展时可增加其他 actor。
 - 事件消费者不能直接推断所有通过都来自同一来源，应以 payload 中的 `actor_type` 和 `decision` 为准。
 

@@ -309,6 +309,52 @@
 - 状态流项目里，后台列表的价值是让 pending/published/rejected/removed 可观察，而不是做复杂搜索引擎。
 - Handler -> Service -> Repository 分层仍然适用于后台接口：HTTP 参数、业务校验、数据库查询各在各层。
 
+### Stage J: Add Admin Remove Decision
+
+目标：补齐 `PUT /api/admin/review/tasks/{taskId}/decision` 中已经写入 API contract 的 `remove` 决策，让后台审核不仅能通过/拒绝，也能对内容做下架治理，完善 `published -> removed` 的状态流。
+
+实现范围：
+
+- 新增审核任务状态 `admin_removed`。
+- 管理员 `remove` 决策会在同一事务内：
+  - 更新 `review_tasks.status = admin_removed`。
+  - 设置 `review_tasks.admin_decision = remove` 和可选 `admin_reason`。
+  - 更新 `notes.status = removed`。
+  - 写入 `review_task_events(admin_decided)`。
+  - 写入 `outbox_events(topic = note.review_decided)`，payload 中包含 `decision = remove` 与 `note_status = removed`。
+- `remove` 支持从已发布/已 `admin_approved` 的任务再次进入下架状态，用于发布后治理。
+- 已经 `admin_removed` 的任务再次 remove 返回 `409 already_decided`，避免重复下架事件。
+
+主要实现：
+
+- `review.TaskStatusAdminRemoved`：补齐 review task 终态枚举。
+- `review.Service.Decide`：扩展 decision 状态机，区分 `approve/reject` 终态保护和 `remove` 下架覆盖。
+- `review.Handler.writeError`：更新 invalid decision 文案为 `approve, reject, or remove`。
+- `docs/openapi.yaml`：新增 admin review decision 契约和 `ReviewTask`/`ReviewDecisionRequest` schema。
+
+设计取舍：
+
+- `remove` 不清空 `published_at`，保留内容曾经发布过的审计线索；公共可见性仍由 `status=published AND visibility=public` 控制。
+- `approve/reject` 不允许覆盖已有 admin 终态，避免后台误操作反复改写决策；`remove` 允许从 `admin_approved` 进入下架，因为发布后下架是内容治理的真实需求。
+- 当前不扩展“request manual review”后台动作，避免重新拉大 Agent 工作流范围。
+
+关键测试：
+
+- `TestReviewFlowRemove`
+  - 验证 pending review 任务可以由管理员直接 remove，note 进入 `removed`，公共详情返回 404。
+- `TestReviewFlowRemovePublishedNote`
+  - 验证已 approve/published 的内容可以再次 remove，支撑发布后下架。
+- `TestReviewFlowRejectsRepeatedRemove`
+  - 验证重复 remove 返回 `409 already_decided`。
+- `TestServiceDecideRemoveCreatesReviewDecidedOutboxEvent`
+  - 验证 remove 决策产生 `note.review_decided` outbox event，payload 中写入 `decision=remove` 和 `note_status=removed`。
+
+复习重点：
+
+- 状态机不是简单字符串判断，必须明确哪些终态允许覆盖，哪些终态只能幂等拒绝。
+- 下架属于内容生命周期治理，应使用 `removed` 状态而不是物理删除，便于后台审计、事件追踪和简历项目讲解。
+- 事件 payload 要携带决策结果和最终 note status，consumer 不能只根据 topic 猜测业务含义。
+
 ## Implementation Notes
 
 ### Package Boundaries
@@ -406,6 +452,7 @@ go test ./internal/cache ./internal/note ./cmd/server
 go test ./internal/interaction -run TestRepositoryCreatesOutbox -v
 go test ./internal/outbox -run TestWorker -v
 go test ./internal/review -run TestServiceDecideCreatesReviewDecidedOutboxEvent -v
+go test ./internal/review -run "TestServiceDecideRemoveCreatesReviewDecidedOutboxEvent|TestReviewFlowRemove|TestReviewFlowRemovePublishedNote|TestReviewFlowRejectsRepeatedRemove" -v
 go test ./internal/interaction ./internal/outbox ./cmd/server -v
 go test ./...
 ```

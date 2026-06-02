@@ -139,7 +139,8 @@ review decision committed
 原因：
 
 - 审核通过会让新内容从不可见变为可见。
-- 审核拒绝或移除会让内容从可见变为不可见。
+- 审核拒绝或移除会让内容从可见变为不可见，或让审核中的内容保持不可见终态。
+- 管理员 `remove` 会把审核任务置为 `admin_removed`，内容置为 `removed`，因此必须同时清理 Feed 首页和 note detail/count 缓存。
 - Feed 首页最容易受新内容和状态变更影响。
 - Note detail 不能继续返回旧状态。
 

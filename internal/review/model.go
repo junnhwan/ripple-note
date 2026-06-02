@@ -9,6 +9,7 @@ const (
 	TaskStatusManualRequired = "manual_required"
 	TaskStatusAdminApproved  = "admin_approved"
 	TaskStatusAdminRejected  = "admin_rejected"
+	TaskStatusAdminRemoved   = "admin_removed"
 
 	SourcePublish = "publish"
 	SourceEdit    = "edit"

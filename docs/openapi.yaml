@@ -188,6 +188,51 @@ paths:
           $ref: "#/components/responses/Error"
         "404":
           $ref: "#/components/responses/Error"
+  /api/admin/review/tasks/{taskId}/decision:
+    put:
+      summary: Decide an admin review task
+      description: |
+        管理员对审核任务做最终决策。`approve` 发布内容，`reject` 拒绝内容，
+        `remove` 将内容置为 removed，可用于审核中内容强制移除或已发布内容下架。
+      operationId: decideAdminReviewTask
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: taskId
+          required: true
+          schema:
+            type: integer
+            format: int64
+            minimum: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReviewDecisionRequest"
+      responses:
+        "200":
+          description: Review task decided
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessResponse"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/ReviewTask"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
   /api/admin/notes:
     get:
       summary: Search notes for admin review console
@@ -431,6 +476,93 @@ components:
         logged_out:
           type: boolean
           example: true
+    ReviewDecisionRequest:
+      type: object
+      required:
+        - decision
+      properties:
+        decision:
+          type: string
+          enum:
+            - approve
+            - reject
+            - remove
+          example: remove
+        reason:
+          type: string
+          example: Policy takedown after publication
+    ReviewTask:
+      type: object
+      required:
+        - id
+        - note_id
+        - author_id
+        - status
+        - source
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: integer
+          format: int64
+          example: 3001
+        note_id:
+          type: integer
+          format: int64
+          example: 1001
+        author_id:
+          type: integer
+          format: int64
+          example: 2001
+        status:
+          type: string
+          enum:
+            - pending_agent
+            - agent_passed
+            - agent_rejected
+            - manual_required
+            - admin_approved
+            - admin_rejected
+            - admin_removed
+          example: admin_removed
+        source:
+          type: string
+          enum:
+            - publish
+            - edit
+            - report
+        agent_decision:
+          type: string
+          nullable: true
+        agent_risk_level:
+          type: string
+          nullable: true
+        agent_reason:
+          type: string
+          nullable: true
+        agent_trace_id:
+          type: string
+          nullable: true
+        admin_decision:
+          type: string
+          nullable: true
+          enum:
+            - approve
+            - reject
+            - remove
+        admin_reason:
+          type: string
+          nullable: true
+        decided_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
     AdminNote:
       type: object
       required:

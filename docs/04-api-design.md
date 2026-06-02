@@ -163,7 +163,7 @@ Cursor response:
 | --- | --- | --- | --- |
 | `GET` | `/api/admin/review/tasks` | Admin | List review tasks |
 | `GET` | `/api/admin/review/tasks/{taskId}` | Admin | Review task detail |
-| `PUT` | `/api/admin/review/tasks/{taskId}/decision` | Admin | Approve, reject, remove, or request manual review |
+| `PUT` | `/api/admin/review/tasks/{taskId}/decision` | Admin | Approve, reject, or remove |
 | `GET` | `/api/admin/notes` | Admin | Search notes by status |
 
 Admin note search:
@@ -189,6 +189,12 @@ Admin decision request:
   "reason": "content complies with policy"
 }
 ```
+
+Supported `decision` values:
+
+- `approve`: set `review_tasks.status = admin_approved`, `notes.status = published`, and set `published_at`.
+- `reject`: set `review_tasks.status = admin_rejected` and `notes.status = rejected`.
+- `remove`: set `review_tasks.status = admin_removed` and `notes.status = removed`; can be used as a post-publish takedown. Repeated remove returns `409 already_decided`.
 
 ## Internal Agent APIs
 

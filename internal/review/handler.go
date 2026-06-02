@@ -126,7 +126,7 @@ func (h *Handler) writeError(c *gin.Context, err error) {
 	case errors.Is(err, ErrTaskNotFound):
 		httpapi.Error(c, http.StatusNotFound, "task_not_found", "review task not found")
 	case errors.Is(err, ErrInvalidDecision):
-		httpapi.Error(c, http.StatusBadRequest, "invalid_decision", "decision must be approve or reject")
+		httpapi.Error(c, http.StatusBadRequest, "invalid_decision", "decision must be approve, reject, or remove")
 	case errors.Is(err, ErrAlreadyDecided):
 		httpapi.Error(c, http.StatusConflict, "already_decided", "review task has already been decided")
 	case errors.Is(err, ErrInvalidStatus):

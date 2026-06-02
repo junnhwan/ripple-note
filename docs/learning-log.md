@@ -1059,3 +1059,85 @@ GET /api/admin/notes?status=published&q=go
 ### Follow-Up
 
 - 管理决策接口文档还写了 `remove/request manual review`，当前代码只支持 approve/reject。后续可选择实现 `remove`，但不要扩成复杂工作流。
+
+## 2026-06-02 Optimization Stage J: Admin Remove Decision
+
+### Stage Goal
+
+补齐后台审核决策中的 `remove`，让内容治理状态流从“审核通过/拒绝”扩展到“发布后下架”，并同步 API contract、review workflow、outbox 事件和缓存一致性文档。
+
+### Files Modified
+
+- `internal/review/model.go`: 新增 `TaskStatusAdminRemoved`。
+- `internal/review/service.go`: `Decide` 支持 `remove`，将 review task 更新为 `admin_removed`，将 note 更新为 `removed`，并继续写 `note.review_decided` outbox event。
+- `internal/review/handler.go`: 更新 invalid decision 错误文案。
+- `internal/review/handler_test.go`: 用 TDD 覆盖 pending remove、published 后 remove、重复 remove。
+- `internal/review/service_test.go`: 验证 remove 决策写入 `note.review_decided` payload。
+- `docs/04-api-design.md`: admin decision 明确支持 `approve/reject/remove`。
+- `docs/openapi.yaml`: 新增 admin review decision endpoint schema。
+- `docs/06-review-workflow.md`: 补充 `admin_removed` 状态和 Admin remove 状态迁移。
+- `docs/events-and-outbox.md`: 补充 `note.review_decided` 覆盖 remove 决策。
+- `docs/cache-and-consistency.md`: 补充 admin remove 的缓存失效原因。
+- `docs/15-backend-optimization-log.md`: 追加 Stage J 复盘。
+
+### Go Backend Notes
+
+- **状态机建模**：`approve/reject/remove` 不是三个孤立字符串，而是 review task 状态和 note 状态的同步迁移。service 层负责把业务规则集中起来，避免 handler 或 repository 分散判断。
+- **终态覆盖规则**：`approve/reject` 不允许覆盖已有 admin 终态；`remove` 允许从 `admin_approved` 进入 `admin_removed`，因为发布后下架是治理后台的真实业务动作；重复 `remove` 返回 `409 already_decided`。
+- **事务内事件写入**：remove 决策继续在同一事务内写 `review_task_events` 和 `outbox_events(note.review_decided)`，保证数据库状态和事件记录原子一致。
+- **公共可见性控制**：内容下架只改 `notes.status = removed`，公共读路径仍统一依赖 `status=published AND visibility=public`，因此 removed 内容不会出现在 Feed、公开详情或作者公开列表。
+- **审计信息保留**：remove 不清空 `published_at`，这样能保留内容曾经发布过的事实，方便后台审计和面试讲解生命周期。
+
+### Java Spring Boot Comparison
+
+- `review.Service.Decide` 类似 Spring Boot 中的 `@Transactional ReviewService.decide(...)`，在一个事务里更新 review task、note、audit event 和 outbox event。
+- `TaskStatusAdminRemoved` 类似 Java enum 中新增 `ADMIN_REMOVED`，但 Go 当前使用 string const，需要靠测试和 service 层白名单保证状态正确性。
+- `ErrAlreadyDecided` 类似 Spring 中抛 `ConflictException` 并映射到 HTTP 409，handler 只负责错误码翻译。
+- `note.review_decided` outbox 写入类似 Java 项目中在事务内保存 `DomainEvent`，再由异步 worker 投递 MQ。
+
+### Key Code Paths
+
+```text
+PUT /api/admin/review/tasks/:taskId/decision { decision: "remove" }
+  -> AuthRequired
+  -> review.Handler.requireAdmin
+  -> review.Handler.Decide
+  -> review.Service.Decide
+  -> update review_tasks.status = admin_removed
+  -> update notes.status = removed
+  -> insert review_task_events(admin_decided)
+  -> insert outbox_events(note.review_decided)
+  -> invalidate feed and note caches after commit
+```
+
+发布后下架：
+
+```text
+approve
+  -> review_tasks.status = admin_approved
+  -> notes.status = published
+
+remove
+  -> review_tasks.status = admin_removed
+  -> notes.status = removed
+  -> public note detail returns 404
+```
+
+### Common Pitfalls
+
+- 不要把 `remove` 当成物理删除；治理系统要保留内容记录和审核历史。
+- 不要让 `approve/reject` 反复覆盖 admin 终态，否则后台误操作会让审计链混乱。
+- 不要重复 remove 还继续写 outbox event，否则通知、统计或缓存 consumer 可能收到重复下架信号。
+- 不要忘记同步 OpenAPI 和文档；这个阶段的价值之一就是让 API contract 与实现一致。
+- 不要把 “request manual review” 也顺手扩展进去；当前用户方向是先做后端主线，Agent 扩展先不展开。
+
+### Verification
+
+- `go test ./internal/review -run "TestServiceDecideRemoveCreatesReviewDecidedOutboxEvent|TestReviewFlowRemove|TestReviewFlowRemovePublishedNote|TestReviewFlowRejectsRepeatedRemove" -v` passed。
+- `go test ./internal/review -v` passed。
+- `go test ./...` passed。
+
+### Follow-Up
+
+- 可继续扫一遍 API contract，找出仍然“文档已声明但实现不完整”的后台接口。
+- 最终简历可以把治理状态流写成：发布创建审核任务、管理员 approve/reject/remove、状态变更与 outbox 同事务落库、缓存提交后失效。

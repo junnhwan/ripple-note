@@ -87,6 +87,73 @@ func TestServiceDecideCreatesReviewDecidedOutboxEvent(t *testing.T) {
 	assertPayloadValue(t, payload, "note_status", note.StatusPublished)
 }
 
+func TestServiceDecideRemoveCreatesReviewDecidedOutboxEvent(t *testing.T) {
+	t.Parallel()
+
+	db := newReviewServiceTestDB(t)
+	noteRepo := note.NewRepository(db)
+	reviewRepo := review.NewRepository(db)
+	outboxHelper := outbox.NewHelper(outbox.NewRepository(db))
+	service := review.NewService(reviewRepo, noteRepo, outboxHelper)
+
+	n := &note.Note{
+		ID:         101,
+		AuthorID:   201,
+		Title:      "remove note",
+		Body:       "content",
+		Status:     note.StatusPublished,
+		Visibility: note.VisibilityPublic,
+	}
+	if err := db.Create(n).Error; err != nil {
+		t.Fatalf("create note: %v", err)
+	}
+	task := &review.ReviewTask{
+		NoteID:   n.ID,
+		AuthorID: n.AuthorID,
+		Status:   review.TaskStatusAdminApproved,
+		Source:   review.SourcePublish,
+	}
+	if err := db.Create(task).Error; err != nil {
+		t.Fatalf("create review task: %v", err)
+	}
+
+	decided, err := service.Decide(t.Context(), task.ID, review.DecideInput{
+		Decision: "remove",
+		Reason:   "post-publish takedown",
+		AdminID:  301,
+	})
+	if err != nil {
+		t.Fatalf("decide remove: %v", err)
+	}
+	if decided.Status != review.TaskStatusAdminRemoved {
+		t.Fatalf("expected admin removed, got %s", decided.Status)
+	}
+
+	var stored note.Note
+	if err := db.First(&stored, n.ID).Error; err != nil {
+		t.Fatalf("find note: %v", err)
+	}
+	if stored.Status != note.StatusRemoved {
+		t.Fatalf("expected note status %s, got %s", note.StatusRemoved, stored.Status)
+	}
+
+	var event outbox.Event
+	if err := db.Where("topic = ?", outbox.TopicNoteReviewDecided).First(&event).Error; err != nil {
+		t.Fatalf("find outbox event: %v", err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(event.Payload), &payload); err != nil {
+		t.Fatalf("unmarshal payload: %v", err)
+	}
+	assertPayloadValue(t, payload, "note_id", float64(n.ID))
+	assertPayloadValue(t, payload, "task_id", float64(task.ID))
+	assertPayloadValue(t, payload, "author_id", float64(n.AuthorID))
+	assertPayloadValue(t, payload, "decision", "remove")
+	assertPayloadValue(t, payload, "actor_type", review.ActorTypeAdmin)
+	assertPayloadValue(t, payload, "actor_id", float64(301))
+	assertPayloadValue(t, payload, "note_status", note.StatusRemoved)
+}
+
 func newReviewServiceTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 

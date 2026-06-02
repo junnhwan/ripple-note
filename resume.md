@@ -9,7 +9,7 @@
 
 项目亮点：
 
-- **内容状态流与治理工作流**：设计 `pending_review -> published/rejected/removed` 内容状态和 `pending_agent/manual_required/admin_approved/admin_rejected` 审核任务状态，发布内容时在同一事务内创建内容、图片、标签和审核任务；提供后台审核接口，管理员审核通过/拒绝后同步更新内容状态、记录审核事件并失效相关缓存。
+- **内容状态流与治理工作流**：设计 `pending_review -> published/rejected/removed` 内容状态和 `pending_agent/manual_required/admin_approved/admin_rejected/admin_removed` 审核任务状态，发布内容时在同一事务内创建内容、图片、标签和审核任务；提供后台审核接口，管理员审核通过/拒绝/下架后同步更新内容状态、记录审核事件并失效相关缓存。
 
 - **多场景 Feed 与复合游标分页**：实现最新流、热门流、关注流、标签流等 Feed 场景，采用 `published_at + id`、`hot_score + id` 等复合游标分页方式，避免 offset 分页在无限滚动下的重复、漏刷和深分页性能问题；Feed 查询只返回 `published + public` 内容，登录态通过批量 hydration 回填点赞、收藏、关注状态，将单页 SQL 查询数由约 121 次降至约 7 次。
 

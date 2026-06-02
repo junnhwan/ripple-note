@@ -152,22 +152,30 @@ func (s *Service) Decide(ctx context.Context, taskID uint64, input DecideInput) 
 			return err
 		}
 
-		if task.Status == TaskStatusAdminApproved || task.Status == TaskStatusAdminRejected {
-			return ErrAlreadyDecided
-		}
-
 		var newStatus, noteStatus string
 		var publishedAt *time.Time
 
 		switch input.Decision {
 		case "approve":
+			if isAdminFinalStatus(task.Status) {
+				return ErrAlreadyDecided
+			}
 			newStatus = TaskStatusAdminApproved
 			noteStatus = note.StatusPublished
 			now := time.Now()
 			publishedAt = &now
 		case "reject":
+			if isAdminFinalStatus(task.Status) {
+				return ErrAlreadyDecided
+			}
 			newStatus = TaskStatusAdminRejected
 			noteStatus = note.StatusRejected
+		case "remove":
+			if task.Status == TaskStatusAdminRemoved {
+				return ErrAlreadyDecided
+			}
+			newStatus = TaskStatusAdminRemoved
+			noteStatus = note.StatusRemoved
 		default:
 			return ErrInvalidDecision
 		}
@@ -216,6 +224,15 @@ func (s *Service) Decide(ctx context.Context, taskID uint64, input DecideInput) 
 	}
 
 	return toTaskDTO(task), nil
+}
+
+func isAdminFinalStatus(status string) bool {
+	switch status {
+	case TaskStatusAdminApproved, TaskStatusAdminRejected, TaskStatusAdminRemoved:
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *Service) createReviewDecidedEvent(ctx context.Context, tx *gorm.DB, task *ReviewTask, adminID uint64, noteStatus string) error {
